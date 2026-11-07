@@ -119,3 +119,7 @@ If Supertext can't translate, the translation editor shows a red message startin
 | *Your Supertext translation limit is exceeded* | Your organisation's Supertext volume is used up; contact your administrator. |
 | *There isn't anything left to translate* | All texts already have a translation. |
 | *Timed out waiting …* | Very long page: try again, or ask your administrator to raise the timeout. |
+
+## Support
+
+Questions, problems or ideas: use the [Supertext support form](https://integrations.supertext.com/en/support?platform=wagtail). Mention the version of Wagtail and of the plugin, what you did and what you expected; an error message helps a lot. You get an answer by email, in your language.
