@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+- Added: support for Wagtail 8.1 (tested in CI with Django 6.1 on Python 3.14); the demo runs Wagtail 8.1 and psycopg 3.3.8.
 - Added: the Supertext support form is linked in the README, the user guide and GitHub's "New issue" page.
 - Added: **Translation review** per locale (*Settings → Supertext → Languages* → *Translation review*, or `review` in the `LANGUAGES` option): translations into a locale with it ticked go through Supertext's review service (Supertext Localization Review), where customers and Supertext linguists correct them on the website with a Chrome extension; corrections come back into Wagtail when the texts are translated again, and texts translated before keep their (reviewed) wording. Same API key, billing, languages and messages; other locales keep going directly to Supertext. New option `REVIEW_URL` / `SUPERTEXT_REVIEW_URL` (defaults to Supertext's review service; `""` turns review off everywhere). Run `python manage.py migrate` (adds the column `review`; existing locales start with review off). All four interface languages.
 - Changed: requests to Supertext name the plugin and its version in the User-Agent (`Wagtail-Supertext-Translation/<version>`).

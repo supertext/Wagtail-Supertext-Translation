@@ -151,7 +151,7 @@ pytest
 
 CI (`.github/workflows/ci.yml`) on every push and pull request:
 
-- **test**: the suite on Python 3.11 with Wagtail 7.0 and Django 5.2, 3.12 with Wagtail 7.4 and Django 5.2, and 3.13 and 3.14 with Wagtail 8.0 and Django 6.1.
+- **test**: the suite on Python 3.11 with Wagtail 7.0 and Django 5.2, 3.12 with Wagtail 7.4 and Django 5.2, 3.13 and 3.14 with Wagtail 8.0 and Django 6.1, and 3.14 with Wagtail 8.1 and Django 6.1.
 - **demo**: installs the demo, runs migrations and `demo_setup` twice against PostgreSQL, `supertext_check`, checks the `installed` and `check` reports the stand-in center received (plugin name, ping URL, no key) and the ping endpoint, then translates the home page and the sample article into German through the stand-in API and checks the title, slug and markup.
 
 ## Demo (Railway)
