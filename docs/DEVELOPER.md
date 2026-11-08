@@ -216,7 +216,36 @@ BASE_URL=http://127.0.0.1:8000 DEMO_ADMIN_EMAIL=… DEMO_ADMIN_PASSWORD=… \
   DEMO_EDITOR_EMAIL=… DEMO_EDITOR_PASSWORD=… npm run screenshots
 ```
 
-On *Settings → Supertext* the script replaces the stand-in's local address with the live API address before taking the picture, and makes the window as tall as the page (Wagtail scrolls inside `<main>`). The stand-in also answers `POST /report` (202) and lists the reports on `GET /report`.
+On *Settings → Supertext* the script replaces the stand-in's local address with the live API address before taking the picture, and makes the window as tall as the page (Wagtail scrolls inside `<main>`). The stand-in also answers `POST /report` (202) and lists the reports on `GET /report`. With `STAND_IN_DELAY=<seconds>` it keeps files `in_progress` that long (for the demo movie's waiting state).
+
+## Demo movie
+
+`docs/images/demo.gif` (at the top of the README) is recorded by `tests/docs/movie.mjs` with Supertext's shared movie kit (`tests/docs/movie/movie-kit.mjs` and `assets/`: intro and outro cards, caption bar, cursor, cuts the waiting time; Inter under the SIL OFL, `assets/fonts/Inter-LICENSE.txt`). It shows, with a spoken line for every step (the GIF is silent), as the demo's editor: the sample page in English, the page menu → *Translate this page*, *Deutsch (Schweiz)* ticked and *Submit*, *Translate with Supertext* in wagtail-localize's translation editor, the waiting state, the German texts and *Publish in Deutsch (Schweiz)*. Run it against a fresh demo (the page must have no German translation yet) and the stand-in with a delay, so the waiting state is visible:
+
+```bash
+cd tests/docs && npm install && npx playwright install chromium
+STAND_IN_DELAY=4 npm run stand-in &                    # files stay in_progress for 4 s
+# a fresh demo database (migrate + demo_setup with DEMO_* set), served with the stand-in settings
+# from "Docs screenshots" above
+pip install piper-tts                                   # the voice (once)
+BASE_URL=http://127.0.0.1:8000 DEMO_EDITOR_EMAIL=… DEMO_EDITOR_PASSWORD=… npm run movie
+```
+
+The MP4 is narrated with [Piper](https://pypi.org/project/piper-tts/) (`pip install piper-tts`): the kit's `say()` speaks each step's line, shows its caption and holds until the line is finished; the time spent making the speech is cut. The voice model (63 MB, pinned revision, checked by SHA-256) downloads itself once into `tests/docs/movie/voice/` (git-ignored; never commit it). Without Piper, or with `MOVIE_VOICE=0`, the movie is made silent with the captions only.
+
+Voice: Piper voice “alba” (en_GB), trained on a dataset from the University of Edinburgh's Centre for Speech Technology Research, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+
+It needs `ffmpeg` and writes 1280×720 at 30 fps. The GIF (800 px, 12 fps, keep it under 3 MB) is committed; the MP4 isn't: it goes to `tests/docs/movie/out/Wagtail-Supertext-Translation.mp4` (git-ignored) or to `MOVIE_OUT`. `CHROMIUM_PATH` picks a Chromium other than Playwright's. Record it again when the translation editor or the *Translate this page* step changes. The kit is the same in every Supertext plugin repo: don't restyle it here.
+
+### Install movie
+
+`tests/docs/movie-install.mjs` records the install and configuration movie with the same kit and voice (MP4 only, no GIF). It shows the steps from `docs/INSTALLATION.md` in the kit's terminal (`pip install` from GitHub, `INSTALLED_APPS` and `WAGTAILLOCALIZE_MACHINE_TRANSLATOR` in the settings, the Supertext URLs in `urls.py`, `migrate`, `SUPERTEXT_API_KEY` with the fake key `st-demo-0000-0000-0000` and `supertext_check`), then, as the demo's **administrator**: *Settings → Locales*, *Settings → Supertext* (key set, where to get a key, *Test connection*), the Languages table (German → *German (Switzerland) (de-CH)*, *Translation review* left off, *Save languages*) and *Translate with Supertext* in the German translation. Page loads are cut, and the stand-in's local address is shown as `https://api.supertext.com/v1/`. It needs a German translation of the sample page, so run it after the demo movie (same demo and stand-in):
+
+```bash
+BASE_URL=http://127.0.0.1:8000 DEMO_ADMIN_EMAIL=… DEMO_ADMIN_PASSWORD=… npm run movie:install
+```
+
+The MP4 (about 90 s) goes to `tests/docs/movie/out/Wagtail-Supertext-Translation-install.mp4` (git-ignored) or to `MOVIE_OUT`; it isn't committed. Record it again when the install steps or *Settings → Supertext* change.
 
 ## Code quality and security checks
 

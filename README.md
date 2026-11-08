@@ -4,6 +4,8 @@ Translate Wagtail pages and snippets with **Supertext AI**, right inside [wagtai
 
 Open a page, choose **Translate this page**, pick the languages, and click **Translate with Supertext** in the translation editor. Every missing string of the page is translated in one request per language; you review, adjust and publish as usual.
 
+![Demo: a Wagtail page in English, Translate this page into Deutsch (Schweiz), Translate with Supertext in wagtail-localize's translation editor, the German texts in place and Publish](docs/images/demo.gif)
+
 - A wagtail-localize machine translator: no new screens for editors to learn
 - Whole paragraphs go to Supertext with their bold, italic and link markup, so sentences translate naturally
 - Translated page slugs, so translated pages get translated URLs

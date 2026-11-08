@@ -6,6 +6,8 @@
  * Unknown text comes back as "[<target>] text". Listens on :8765 (any API key).
  * Also stands in for the Supertext Commando Center: POST /report answers 202 (point
  * SUPERTEXT_REPORT_URL at http://127.0.0.1:8765/report), GET /report returns the reports so far.
+ *
+ * STAND_IN_DELAY=<seconds>: files stay `in_progress` that long (the demo movie shows the waiting state).
  */
 import http from 'node:http'
 import { randomBytes } from 'node:crypto'
@@ -21,6 +23,7 @@ const samples = Object.fromEntries(
   ]),
 )
 const files = new Map()
+const delayMs = Number(process.env.STAND_IN_DELAY || 0) * 1000
 const reports = []
 // The live API's target codes (the SDK's Languages.TARGETS, October 2026) and those without formal/informal.
 const TARGETS = new Set('bg cs da de-AT de-CH de-DE el en-GB en-US es fi fr-CH fr-FR gsw-u-sd-chbe gsw-u-sd-chzh hr hu it-CH it-IT ja ko nb nl pl pt-BR pt-PT rm ru sk sl sq sr-Cyrl sr-Latn sv tr zh-Hans zh-Hant'.split(' '))
@@ -58,14 +61,14 @@ http
         return send(400, { error_code: 'FEATURE_ERROR', feature: 'politeness', target_lang: target })
       }
       const id = randomBytes(6).toString('hex')
-      files.set(id, { html: await file.text(), target })
+      files.set(id, { html: await file.text(), target, at: Date.now() })
       return send(200, { file_id: id })
     }
     const match = path.match(/file\/([a-f0-9]+)(\/status|\/translation)?$/)
     const file = match && files.get(match[1])
     if (!file) return send(404, {})
     if (req.method === 'DELETE') { files.delete(match[1]); return send(200, {}) }
-    if (match[2] === '/status') return send(200, { status: 'done' })
+    if (match[2] === '/status') return send(200, { status: Date.now() - file.at < delayMs ? 'in_progress' : 'done' })
     const known = samples[file.target.split('-')[0]] ?? new Map()
     const html = file.html.replace(/(<div data-st-id="\d+">)([\s\S]*?)(<\/div>\n)/g, (all, open, inner, close) => {
       const hit = known.get(norm(inner)) ?? known.get(norm(decode(inner)))

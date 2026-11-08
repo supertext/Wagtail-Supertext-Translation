@@ -9,4 +9,6 @@ __pycache__/
 /demo/media/
 /tests/docs/node_modules
 /tests/docs/package-lock.json
+/tests/docs/movie/out/
+/tests/docs/movie/voice/
 .venv/
