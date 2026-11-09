@@ -24,16 +24,17 @@ StringTranslation rows (tool name "Supertext"), the editor reviews and publishes
 
 | Module | Responsibility |
 | --- | --- |
-| `translator.py` | `SupertextTranslator(BaseMachineTranslator)`: `display_name = "Supertext"`, `can_translate()` (source and target are different languages; an unmapped locale keeps the button so the editor gets the message), `translate()` (refuses politeness for a target without it, runs the reporter after the translation) |
-| `client.py` | The plugin's Supertext client on top of the Supertext SDK: sends the SDK's requests with `requests` (`RequestsTransport`), maps SDK error codes to translatable messages (`SupertextError`). No Django imports; the session and `sleep` are injectable for tests. |
+| `translator.py` | `SupertextTranslator(BaseMachineTranslator)`: `display_name = "Supertext"`, `can_translate()` (source and target are different languages; a locale without mapping and default keeps the button so the editor gets the message), `translate()` (refuses politeness for a target without it, runs the reporter after the translation) |
+| `client.py` | The plugin's Supertext client on top of the Supertext SDK: sends the SDK's requests with `requests` (`RequestsTransport`), maps SDK error codes to translatable messages (`SupertextError`), `REVIEW_URL` (Supertext's review service) and the User-Agent `Wagtail-Supertext-Translation/<version>`. No Django imports; the session and `sleep` are injectable for tests. |
 | `_vendor/supertext/` | The [Supertext Python SDK](https://github.com/Supertext/Supertext-API-SDK-and-Guide) (`sdk/python`), the package's own copy, made by `scripts/vendor-sdk.sh`; see *Supertext SDK* |
 | `_vendor/plugin_health/` | [Supertext Plugin Health](https://github.com/Supertext/Commando-Center-Supertext-Translation/tree/main/plugin-health) (`plugin-health/python`), the package's own copy, made by `scripts/vendor-plugin-health.sh`; see *Supertext Plugin Health* |
-| `conf.py` | Reads `WAGTAILLOCALIZE_MACHINE_TRANSLATOR["OPTIONS"]` plus `SUPERTEXT_API_KEY` / `SUPERTEXT_API_ENDPOINT` / `SUPERTEXT_VERSION_REPORTS`; Wagtail language code → Supertext code (the SDK's `Languages`, see *Language codes*) and tone |
+| `conf.py` | Reads `WAGTAILLOCALIZE_MACHINE_TRANSLATOR["OPTIONS"]` plus `SUPERTEXT_API_KEY` / `SUPERTEXT_API_ENDPOINT` / `SUPERTEXT_REVIEW_URL` / `SUPERTEXT_VERSION_REPORTS`; Wagtail language code → Supertext code (the SDK's `Languages` with the languages saved on *Settings → Supertext* and the `LANGUAGES` override, see *Language codes*), tone and *Translation review*; `Options.client(review=…)` |
 | `reporting.py` | Commando Center: version reports, the API key check and the ping answer (Plugin Health's `InstallationReporter`, `ping_response`, with the SDK's `check_api_key()` as the key check), site URL, state storage, the key-check messages |
-| `models.py`, `migrations/` | `SupertextState`: one row `reporter` with the reporter's JSON state |
+| `models.py`, `migrations/` | `SupertextState`: one row `reporter` with the reporter's JSON state. `SupertextLanguage`: one row per Wagtail `Locale` (one-to-one, deleted with it) with the chosen Supertext `code` (empty = not chosen) and `politeness` |
+| `files.py`, `templates/wagtail_supertext/files.html` | *Settings → Translation files*: *Export for translation* / *Import translation* (XLIFF and HTML with the SDK's `files`; see *Translation files*) |
 | `urls.py` | Public URLs, included by the site's `urls.py`: `GET /supertext/ping` |
 | `errors.py` | Wraps wagtail-localize's `machine_translate` view (installed in `AppConfig.ready()`): a `SupertextError` becomes an error message in the editor instead of an HTTP 500 |
-| `views.py`, `wagtail_hooks.py`, `templates/` | *Settings → Supertext* (superusers): configuration, plugin version (read from `wagtail_supertext.__version__`, linked to the GitHub release when it is X.Y.Z), latest API key check, *Test connection*, the version-reports setting and ping URL, language table with *Not mapped* and tone warnings; `views.ping` (public) |
+| `views.py`, `wagtail_hooks.py`, `templates/` | *Settings → Supertext* (superusers): configuration, plugin version (read from `wagtail_supertext.__version__`, linked to the GitHub release when it is X.Y.Z), latest API key check, *Test connection*, the version-reports setting and ping URL, the **Languages** form (one native `<select>` of `Languages.target_options()` per locale, preselected with the saved code, else `Languages.suggest_target()`, else *— choose —*; a tone select shown only where the chosen target supports politeness; `save_languages()` accepts only codes from the list); `views.ping` (public) |
 | `management/commands/supertext_check.py` | `python manage.py supertext_check`: key check (`test_connection`) and a `check` report (`report_check`) |
 | `locale/{de,fr,it}/` | German, French and Italian admin strings (`django.po` and compiled `django.mo`) |
 
@@ -56,11 +57,25 @@ Shared with the WordPress plugin and every other Supertext plugin, and implement
 
 Auth header: `Authorization: Supertext-Auth-Key <key>`; a pasted `Supertext-Auth-Key ` prefix is stripped, so exactly one is sent. Base URLs: `https://api.supertext.com/v1/` (live), `https://api.staging.supertext.com/v1/`, `https://api.testing.supertext.com/v1/`. `GET features` is a cost-free key check (*Test connection*, `supertext_check`).
 
+Requests carry the User-Agent `supertext-sdk-python Wagtail-Supertext-Translation/<version>` (`client.user_agent()`, the version from `wagtail_supertext.__version__`, as in the reports), also the key check.
+
+**Translation review** (`SupertextLanguage.review`, per target locale, or `review` in the `LANGUAGES` option, which wins): `SupertextTranslator.translate()` asks `Options.client(review=Options.review(target))` for its client: with review on, a second `SupertextClient` with the same key, timeouts, transport and User-Agent whose base URL is `review_url` (the `REVIEW_URL` option or `SUPERTEXT_REVIEW_URL`, default `client.REVIEW_URL`, the translation proxy of [Supertext Localization Review](https://github.com/Supertext/Localization-Review-Supertext-Translation)). The SDK's round trip (upload, status, download, delete) runs on that one client, so a job is collected where it was submitted. The proxy speaks the same API v1, forwards to the live Supertext API with the plugin's key, stores every segment per key and serves reviewers' corrections on the next upload, so nothing else changes in the plugin. `REVIEW_URL: ""` (or the same URL as the API: `Options.review_available` is false) means every locale goes directly to Supertext. The key check (`reporting.key_client`, always `base_url`), reports and *Translation files* never use the review service. Tested in `tests/test_review.py`.
+
 **Rate limit:** the API limits requests per second per key (HTTP 429). A 429 is retried up to 4 times, waiting for `Retry-After` if sent, otherwise 1, 2, 4 and 8 seconds plus jitter (at most 30 s).
+
+### Translation files (XLIFF and HTML)
+
+*Export for translation* and *Import translation* use the SDK's `files` module (`wagtail_supertext._vendor.supertext.files`, SDK 0.5.0; integration guide → *Translation files*). wagtail-localize has its own PO download/upload in the translation editor; ours is the Supertext XLIFF/HTML format, on *Settings → Translation files* (`views.translation_files`, admin URL `supertext/files/`, menu item in `wagtail_hooks.py`) because the translation editor is wagtail-localize's React app.
+
+- An item is a wagtail-localize `Translation` (source page or snippet × target locale). `files.collect()` returns what `apply_machine_translation()` sends: the source's `StringSegment`s without a `StringTranslation` in the target locale, once per (string, context), keyed **`<context path>#<string id>`**; slugs go out as words (`translator.outgoing()`), as for the API.
+- The import collects the same strings again, calls `import_translations()`, converts `ok` texts (plus `source_changed` with *Also import texts whose source changed since the export*) with `translator.incoming()` (`StringValue.from_translated_html()`, slugs slugified) and writes `StringTranslation` rows with `get_or_create`, exactly as a machine translation does (never over an existing translation), with `translation_type` `manual` and `last_translated_by` the user. The editor reviews and publishes in the translation editor (`save_target`).
+- Job metadata: `plugin` `Wagtail-Supertext-Translation`; `reference` **`translation:<Translation id>:<target locale>`** (`translation:7:fr-ch`; the locale must still be the translation's); `sourceLanguage`/`targetLanguage` from `Options.source_code()`/`target_code()`, else the locale code with `-`, so unmapped locales don't block an export.
+- Permissions: the page lists only sources with a translation the user may edit (`user_can_edit_instance` on the target instance, at most the 200 most recently updated sources); the import checks it per job.
+- File names `wagtail-<TranslationSource id>-<target code>.xlf`/`.html`, `wagtail-<id>.xlf` for several languages; `application/x-xliff+xml` / `text/html; charset=utf-8`. Uploads over 10 MB are refused before they are read (`files.check_size(upload.size)`); the content is decoded and parsed in memory.
 
 ### Supertext SDK
 
-`wagtail_supertext/_vendor/supertext` is the package's own copy of the Supertext Python SDK (`supertext-sdk`), the shared client of all Supertext plugins (since SDK 0.3.0 it provides the client and the API key check, `check_api_key()` and `api_key_fingerprint()`; version reports and the ping come from Supertext Plugin Health, below): a private subpackage, so sites install nothing besides this package and an installed `supertext-sdk` can never clash with it. `COMMIT` names the SDK commit, `VERSION` its version (`client.SDK_VERSION`). Never edit it: fix the SDK repository and copy it again:
+`wagtail_supertext/_vendor/supertext` is the package's own copy of the Supertext Python SDK (`supertext-sdk`), the shared client of all Supertext plugins (since SDK 0.3.0 it provides the client and the API key check, `check_api_key()` and `api_key_fingerprint()`, since 0.5.0 also the translation files, `files`; version reports and the ping come from Supertext Plugin Health, below): a private subpackage, so sites install nothing besides this package and an installed `supertext-sdk` can never clash with it. `COMMIT` names the SDK commit, `VERSION` its version (`client.SDK_VERSION`). Never edit it: fix the SDK repository and copy it again:
 
 ```bash
 scripts/vendor-sdk.sh                  # latest main of the SDK repository
@@ -85,9 +100,11 @@ The script fails if an absolute `supertext_plugin_health` import is left. Then r
 
 ## Language codes
 
-Supertext accepts exactly the codes its `GET features` lists (the SDK's `Languages`, from the live API, October 2026): bare sources (`en`, `de`); targets in one exact form each, regional for German, English, French, Italian and Portuguese (`de-CH`, `en-US`, `pt-BR`), with a script for Chinese and Serbian (`zh-Hans`, `sr-Latn`), a dialect for Swiss German (`gsw-u-sd-chzh`), bare for the others (`es`, `nl`, `sl`). Anything else is HTTP 404 `INVALID_LANGUAGE_PAIR`; formal/informal for a target without it (`en-US`, `rm`, …) is HTTP 400 `FEATURE_ERROR` (`unsupported_feature`). The SDK sends codes as given. `conf.py` resolves Wagtail codes **without guessing**:
+Supertext accepts exactly the codes its `GET features` lists (the SDK's `Languages`, from the live API, October 2026): bare sources (`en`, `de`); targets in one exact form each, regional for German, English, French, Italian and Portuguese (`de-CH`, `en-US`, `pt-BR`), with a script for Chinese and Serbian (`zh-Hans`, `sr-Latn`), a dialect for Swiss German (`gsw-u-sd-chzh`), bare for the others (`es`, `nl`, `sl`). Anything else is HTTP 404 `INVALID_LANGUAGE_PAIR`; formal/informal for a target without it (`en-US`, `rm`, …) is HTTP 400 `FEATURE_ERROR` (`unsupported_feature`). The SDK sends codes as given. `conf.py` resolves Wagtail codes with **defaults only where obvious**:
 
-- **Target** (`Options.target_code`): `Languages.target(code, mapping)`. The mapping is the `code` entries of `LANGUAGES` (sent as they are); else a Wagtail code that equals a Supertext code apart from case and `_`/`-` (`de-ch` → `de-CH`, `es`); else `SupertextError` `unsupported_language` with the Wagtail code (`%(language)s` in the message), and nothing is sent. No default regions: `de` must be mapped (to `de-DE`, `de-CH` or `de-AT`). `target_code_or_none` is for *Settings → Supertext* (*Not mapped*).
+- **Mapping** (`Options.mapping`): the codes chosen on *Settings → Supertext → Languages* (`SupertextLanguage` rows, read by `conf.saved_languages()` inside a savepoint; an unreadable table gives an empty mapping, never an error), with the `code` entries of the `LANGUAGES` option winning per locale (`override_code`; the settings page then shows the code instead of a select). `politeness` the same way (`override_politeness`).
+- **Target** (`Options.target_code`): `Languages.target(code, mapping)`: the mapping (sent as it is); else a Wagtail code that equals a Supertext code apart from case and `_`/`-` (`de-ch` → `de-CH`, `es`); else the SDK's default (`Languages.default_target`: `de` → `de-DE`, `en` → `en-US`, `fr` → `fr-FR`, `it` → `it-IT`, `pt` → `pt-PT`, `zh`/`zh-cn`/`zh-sg` → `zh-Hans`, `zh-tw`/`zh-hk`/`zh-mo` → `zh-Hant`, `sr` → `sr-Latn`, `es-es` → `es`); else `SupertextError` `unsupported_language` with the Wagtail code (`%(language)s` in the message, which points to *Settings → Supertext → Languages*), and nothing is sent (`en-ie`, `de-li`, `gsw`, `sr-rs`). `target_code_or_none` returns `None` for those.
+- **Settings page:** each select preselects the saved code, else `Languages.suggest_target(code)` (exact match, else default), else *— choose —*; only rows without mapping **and** without default are flagged. Saving stores the selected code (also the preselected suggestion) after checking it against `Languages.target_options()`. Sites that configured `LANGUAGES` before keep it: it still wins, so nothing configured is lost on upgrade.
 - **Source** (`Options.source_code`): `Languages.source(code, mapping)` with the same mapping, which sends a mapped code in its source form (`de-CH` → `de`, `en-US` → `en`; one mapping for both directions), else the code's language (`en-us` → `en`), else `unsupported_language`.
 - **Tone:** `politeness` is sent only where `Languages.supports_politeness(target)` isn't `False`; where it is, `translate()` raises `unsupported_feature` before any request (the setting isn't dropped silently), and the settings page warns.
 - `can_translate()` is false only when source and target are the same language; an unmapped locale keeps the button, so the editor sees why.
@@ -126,13 +143,15 @@ pytest
 ```
 
 - `tests/test_client.py`: the plugin's client on the SDK through a fake `requests` session: the API protocol, auth header and prefix, 429 retries, errors and their messages, clean-up, many strings in one document. The SDK's own tests and conformance scenarios run in the SDK repository.
-- `tests/test_document.py`: language mapping and exact codes, unmapped languages (no guessing), tone support, environment variables, the version-reports setting.
+- `tests/test_document.py`: language mapping and exact codes, SDK defaults, languages without default (no guessing), the settings page's choice and the `LANGUAGES` override, tone support, environment variables, the version-reports setting.
+- `tests/test_review.py`: *Translation review*: a locale with it on goes through the review URL (upload, status, download, delete; same key; the User-Agent with the version), other locales directly, `REVIEW_URL: ""` turns it off, `SUPERTEXT_REVIEW_URL`, the `LANGUAGES` → `review` override, the default (Supertext's review service, off per locale, no second client for the API's own URL), the key check never on the review service, the checkbox on *Settings → Supertext*.
 - `tests/test_reporting.py`: one `installed` report from *Settings → Supertext* (fields, `sdk_version`, callback URL, never the key), nothing more when nothing changed, state stored by the SDK 0.1–0.2 reporter kept (no new report), the bundled Plugin Health version, `upgraded`, *Test connection* with a rejected key (message with links), reports off (nothing sent, key still checked, ping 404), the `VERSION_REPORTS` option, an unreachable center (no retry within the hour), storage failures, the ping answers, a 401/403 reported once, `supertext_check`, the site URL. `tests/conftest.py` sends every report and key check to `tests.fake.FakeTransport` (never the live center or API) in the same thread.
-- `tests/test_translator.py`: wagtail-localize end to end on SQLite: a page with rich text, a link and StreamField blocks is submitted, machine-translated through a fake API session and published; checks markup, link, slug, politeness, "nothing left to translate", errors as editor messages, the settings page, unmapped locales (nothing sent), politeness for a target without it, and a rejected key reported to the (fake) center.
+- `tests/test_files.py`: XLIFF/HTML export and import with wagtail-localize: reference round trip, the mapping and the fallback for unmapped codes, the machine translation's strings and keys, HTML with one language only, nothing to export, `StringTranslation` rows written (title, slug, publish), `source_changed` only with the option, `untranslated`/`invalid_markup`/`missing` not written, errors per job (other system, unknown or deleted translation, wrong locale, no permission), invalid files and the 10 MB limit, the page's export download and import summary, only editable translations listed.
+- `tests/test_translator.py`: wagtail-localize end to end on SQLite: a page with rich text, a link and StreamField blocks is submitted, machine-translated through a fake API session and published; checks markup, link, slug, politeness, "nothing left to translate", errors as editor messages, the settings page, a locale without mapping and default (nothing sent), a choice saved on the settings page, a locale with an SDK default, politeness for a target without it, and a rejected key reported to the (fake) center.
 
 CI (`.github/workflows/ci.yml`) on every push and pull request:
 
-- **test**: the suite on Python 3.11 with Wagtail 7.0 and Django 5.2, 3.12 with Wagtail 7.4 and Django 5.2, and 3.13 and 3.14 with Wagtail 8.0 and Django 6.1.
+- **test**: the suite on Python 3.11 with Wagtail 7.0 and Django 5.2, 3.12 with Wagtail 7.4 and Django 5.2, 3.13 and 3.14 with Wagtail 8.0 and Django 6.1, and 3.14 with Wagtail 8.1 and Django 6.1.
 - **demo**: installs the demo, runs migrations and `demo_setup` twice against PostgreSQL, `supertext_check`, checks the `installed` and `check` reports the stand-in center received (plugin name, ping URL, no key) and the ping endpoint, then translates the home page and the sample article into German through the stand-in API and checks the title, slug and markup.
 
 `.github/workflows/checks.yml` and `links.yml` lint the workflows and check the links. `.github/workflows/e2e.yml` runs the end-to-end test against the real Supertext API and regenerates the docs screenshots (see *End-to-end tests*).
@@ -170,7 +189,7 @@ The public demo is a container built from `demo/Dockerfile`: Wagtail 8 with wagt
 | --- | --- |
 | `Dockerfile` | `python:3.13-slim`, the demo's requirements and this package (installed from the repository), `collectstatic` |
 | `entrypoint.sh` | Every start: creates the database if missing, `migrate`, `demo_setup`, then gunicorn on `$PORT` |
-| `demo/settings.py` | Settings from environment variables; PostgreSQL via `DATABASE_URL` (database name `WAGTAIL_DB_NAME`); WhiteNoise for static files; Supertext with formal tone for all three languages |
+| `demo/settings.py` | Settings from environment variables; PostgreSQL via `DATABASE_URL` (database name `WAGTAIL_DB_NAME`); WhiteNoise for static files; Supertext as machine translator; `demo_setup` gives the three target locales the formal tone on *Settings → Supertext* once (only if they have no row yet) |
 | `home/` | `HomePage` and `ArticlePage` (title, rich-text intro, StreamField with headings, paragraphs, quotes), templates with a language switcher, migrations, and the `demo_setup` command |
 | `createdb.py` | Creates the demo database on the server from `DATABASE_URL` |
 | `.env.example` | The variables below |
@@ -186,7 +205,8 @@ The public demo is a container built from `demo/Dockerfile`: Wagtail 8 with wagt
 | `DEMO_ADMIN_EMAIL`, `DEMO_ADMIN_PASSWORD` | Superuser (the e-mail address is also the username) |
 | `DEMO_EDITOR_EMAIL`, `DEMO_EDITOR_PASSWORD` | Optional second account for automated tests and screenshots: in Wagtail's **Moderators** group (edit and publish pages), which `demo_setup` also gives wagtail-localize's *Can submit translation* |
 | `SUPERTEXT_API_KEY` | Supertext key used by the translator |
-| `SUPERTEXT_API_ENDPOINT` | Optional, e.g. the staging API |
+| `SUPERTEXT_API_ENDPOINT` | Optional, e.g. the staging API (to try the review service, tick *Translation review* on *Settings → Supertext* instead) |
+| `SUPERTEXT_REVIEW_URL` | Optional: another review service than Supertext's (`REVIEW_URL`; empty keeps the default) |
 | `SUPERTEXT_VERSION_REPORTS` | Optional; `0` turns version reports off (default on) |
 | `PORT` | Port gunicorn listens on (Railway sets it) |
 
@@ -206,7 +226,7 @@ docker run --rm -p 8000:8000 \
 
 ## Docs screenshots
 
-The images in `docs/images/` are generated by `tests/docs/screenshots.mjs` (Playwright) from a freshly set-up demo whose translator talks to `tests/docs/stand-in.mjs`. The stand-in returns German, French and Italian for the demo's strings (`samples.json`, real Supertext output). Regenerate them whenever a screen they show changes:
+The images in `docs/images/` are generated by `tests/docs/screenshots.mjs` (Playwright) from a freshly set-up demo whose translator talks to `tests/docs/stand-in.mjs`. The stand-in returns German, French and Italian for the demo's strings (`samples.json`, real Supertext output). The script also exports the sample article as HTML for French on *Settings → Translation files*, fills in the French from `samples.json` and imports it (`files-export.png`, `files-import.png`). Regenerate them whenever a screen they show changes:
 
 ```bash
 cd tests/docs && npm ci && npx playwright install chromium
@@ -219,7 +239,36 @@ BASE_URL=http://127.0.0.1:8000 DEMO_ADMIN_EMAIL=… DEMO_ADMIN_PASSWORD=… \
   DEMO_EDITOR_EMAIL=… DEMO_EDITOR_PASSWORD=… npm run screenshots
 ```
 
-On *Settings → Supertext* the script replaces the stand-in's local address with the live API address and the key check's time with a fixed one before taking the picture, and makes the window as tall as the page (Wagtail scrolls inside `<main>`). The browser's clock is fixed too, so the images only change when the UI does. The E2E workflow (see *End-to-end tests*) runs the script against a fresh demo on every relevant push to `main` and opens a pull request when the images changed. The stand-in also answers `POST /report` (202) and lists the reports on `GET /report`.
+On *Settings → Supertext* the script replaces the stand-in's local address with the live API address before taking the picture, and makes the window as tall as the page (Wagtail scrolls inside `<main>`). The stand-in also answers `POST /report` (202) and lists the reports on `GET /report`. With `STAND_IN_DELAY=<seconds>` it keeps files `in_progress` that long (for the demo movie's waiting state).
+
+## Demo movie
+
+`docs/images/demo.gif` (at the top of the README) is recorded by `tests/docs/movie.mjs` with Supertext's shared movie kit (`tests/docs/movie/movie-kit.mjs` and `assets/`: intro and outro cards, caption bar, cursor, cuts the waiting time; Inter under the SIL OFL, `assets/fonts/Inter-LICENSE.txt`). It shows, with a spoken line for every step (the GIF is silent), as the demo's editor: the sample page in English, the page menu → *Translate this page*, *Deutsch (Schweiz)* ticked and *Submit*, *Translate with Supertext* in wagtail-localize's translation editor, the waiting state, the German texts and *Publish in Deutsch (Schweiz)*. Run it against a fresh demo (the page must have no German translation yet) and the stand-in with a delay, so the waiting state is visible:
+
+```bash
+cd tests/docs && npm install && npx playwright install chromium
+STAND_IN_DELAY=4 npm run stand-in &                    # files stay in_progress for 4 s
+# a fresh demo database (migrate + demo_setup with DEMO_* set), served with the stand-in settings
+# from "Docs screenshots" above
+pip install piper-tts                                   # the voice (once)
+BASE_URL=http://127.0.0.1:8000 DEMO_EDITOR_EMAIL=… DEMO_EDITOR_PASSWORD=… npm run movie
+```
+
+The MP4 is narrated with [Piper](https://pypi.org/project/piper-tts/) (`pip install piper-tts`): the kit's `say()` speaks each step's line, shows its caption and holds until the line is finished; the time spent making the speech is cut. The voice model (63 MB, pinned revision, checked by SHA-256) downloads itself once into `tests/docs/movie/voice/` (git-ignored; never commit it). Without Piper, or with `MOVIE_VOICE=0`, the movie is made silent with the captions only.
+
+Voice: Piper voice “alba” (en_GB), trained on a dataset from the University of Edinburgh's Centre for Speech Technology Research, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+
+It needs `ffmpeg` and writes 1280×720 at 30 fps. The GIF (800 px, 12 fps, keep it under 3 MB) is committed; the MP4 isn't: it goes to `tests/docs/movie/out/Wagtail-Supertext-Translation.mp4` (git-ignored) or to `MOVIE_OUT`. `CHROMIUM_PATH` picks a Chromium other than Playwright's. Record it again when the translation editor or the *Translate this page* step changes. The kit is the same in every Supertext plugin repo: don't restyle it here.
+
+### Install movie
+
+`tests/docs/movie-install.mjs` records the install and configuration movie with the same kit and voice (MP4 only, no GIF). It shows the steps from `docs/INSTALLATION.md` in the kit's terminal (`pip install` from GitHub, `INSTALLED_APPS` and `WAGTAILLOCALIZE_MACHINE_TRANSLATOR` in the settings, the Supertext URLs in `urls.py`, `migrate`, `SUPERTEXT_API_KEY` with the fake key `st-demo-0000-0000-0000` and `supertext_check`), then, as the demo's **administrator**: *Settings → Locales*, *Settings → Supertext* (key set, where to get a key, *Test connection*), the Languages table (German → *German (Switzerland) (de-CH)*, *Translation review* left off, *Save languages*) and *Translate with Supertext* in the German translation. Page loads are cut, and the stand-in's local address is shown as `https://api.supertext.com/v1/`. It needs a German translation of the sample page, so run it after the demo movie (same demo and stand-in):
+
+```bash
+BASE_URL=http://127.0.0.1:8000 DEMO_ADMIN_EMAIL=… DEMO_ADMIN_PASSWORD=… npm run movie:install
+```
+
+The MP4 (about 90 s) goes to `tests/docs/movie/out/Wagtail-Supertext-Translation-install.mp4` (git-ignored) or to `MOVIE_OUT`; it isn't committed. Record it again when the install steps or *Settings → Supertext* change.
 
 ## Code quality and security checks
 
@@ -227,6 +276,7 @@ On *Settings → Supertext* the script replaces the stand-in's local address wit
 - **Links** workflow (`.github/workflows/links.yml`): [lychee](https://lychee.cli.rs/) checks the links in all Markdown files weekly and whenever docs change on `main`. Broken links open (or update) the issue "Broken links in the docs". Links that can't work from CI (local URLs, placeholders, pages behind a login) are excluded in `.lycheeignore`.
 - Python and the demo's JavaScript are analysed by CodeQL (see below), so this repo runs no separate static analyser.
 - GitHub settings (set by Remy's setup script, not stored in the repo): **secret scanning with push protection** (a push containing a known token format is rejected; findings under *Security → Secret scanning*) and **CodeQL default setup** (findings under *Security → Code scanning* and as comments on pull requests; PHP isn't covered by CodeQL, which is why the PHP plugins run PHPStan).
+- `.github/workflows/support-triage.yml`: support requests from the Supertext integrations website arrive as issues labelled `support` (contact details stay in the Supertext CMS). Claude classifies each one: answers questions (marked `<!-- supertext:reply -->`, emailed to the sender by the CMS) and closes them, fixes bugs as pull requests for review (never merged automatically), labels feature requests `feature-request`. Only people with triage rights can add labels, so outsiders can't start it. Needs the organisation secret `ANTHROPIC_API_KEY`; the workflow is the same in every Supertext repo.
 
 Before starting work in this repo, look at its open findings: code scanning alerts, secret scanning alerts, Dependabot PRs and the "Broken links in the docs" issue.
 
@@ -252,5 +302,7 @@ Publishing to PyPI (`python -m build && twine upload dist/*`) is planned.
 - Translation runs inside the editor's request (up to `TIMEOUT` per language); very large pages may need a longer web server timeout. Planned: background translation for whole subtrees.
 - Only machine translation through wagtail-localize. Sites using Wagtail's simple translation (`wagtail.contrib.simple_translation`) instead are not supported.
 - No bulk "translate this subtree into all languages with Supertext" yet: submit the subtree with wagtail-localize, then click *Translate with Supertext* per page and language.
+- *Settings → Translation files* exports one page or snippet at a time (XLIFF can hold several languages); a bulk export of a subtree would be the next step. It has no button in wagtail-localize's translation editor (a React app).
+- A translation memory and reviewers' corrections come from the review service when a locale has *Translation review* on; corrections reach Wagtail only when a text is translated again (wagtail-localize never overwrites an existing translation, so the editor clears it first; no push).
 - Not on PyPI yet.
 - Human (professional) translation orders are not supported yet (the WordPress plugin has them).

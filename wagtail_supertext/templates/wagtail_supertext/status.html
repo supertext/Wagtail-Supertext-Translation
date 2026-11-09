@@ -22,6 +22,8 @@
       </dd>
       <dt>{% trans "API" %}</dt>
       <dd><code>{{ options.base_url }}</code></dd>
+      <dt>{% trans "Review service" %}</dt>
+      <dd>{% if options.review_available %}<code>{{ options.review_url }}</code>{% else %}{% trans "Off (REVIEW_URL is empty)" %}{% endif %}</dd>
       <dt>{% trans "Plugin version" %}</dt>
       <dd>{% if version_url %}<a href="{{ version_url }}" target="_blank" rel="noopener">{{ version }}</a>{% else %}{{ version }}{% endif %}</dd>
       <dt>{% trans "API key check" %}</dt>
@@ -53,22 +55,83 @@
 
   <section>
     <h2 class="w-h3">{% trans "Languages" %}</h2>
-    <p class="help">{% blocktrans trimmed %}Each target locale is sent to Supertext with this language code and tone. A locale whose code isn't a Supertext code needs a mapping: set <code>code</code> in the <code>LANGUAGES</code> option (see the installation guide).{% endblocktrans %}</p>
-    <table class="listing">
-      <thead>
-        <tr><th>{% trans "Locale" %}</th><th>{% trans "Supertext language" %}</th><th>{% trans "Tone" %}</th></tr>
-      </thead>
-      <tbody>
-        {% for locale in locales %}
-          <tr>
-            <td>{{ locale.name }} <code>{{ locale.code }}</code></td>
-            <td>{% if locale.is_source %}{% trans "Source language" %}{% elif locale.target %}<code>{{ locale.target }}</code>{% else %}<span class="supertext-check supertext-check--fail">{% trans "Not mapped: set code in the LANGUAGES option" %}</span>{% endif %}</td>
-            <td>{% if locale.is_source %}–{% elif locale.politeness == "more" %}{% trans "Formal (Sie, vous)" %}{% elif locale.politeness == "less" %}{% trans "Informal (du, tu)" %}{% else %}{% trans "Default" %}{% endif %}{% if not locale.is_source and locale.politeness != "default" and locale.politeness_supported is False %} <span class="supertext-check supertext-check--fail">· {% trans "Supertext offers no formal/informal choice for this language" %}</span>{% endif %}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <p class="help">{% trans "Choose the Supertext language for each locale. The same choice is used when the locale is the source language. The suggested language is preselected; a locale without a suggestion can't be translated until you choose one." %}</p>
+    <p class="help">{% trans "Translation review: translations into this locale go through Supertext's review service, so reviewers can check and correct them on the website with the Supertext Localization Review extension. Their corrections are used the next time the page is translated." %}</p>
+    <p class="help">{% blocktrans trimmed %}For automated setups, <code>code</code>, <code>politeness</code> and <code>review</code> in the <code>LANGUAGES</code> option override the choice made here (see the installation guide).{% endblocktrans %}</p>
+    <form method="post" class="supertext-languages">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="languages">
+      <table class="listing">
+        <thead>
+          <tr><th>{% trans "Locale" %}</th><th>{% trans "Supertext language" %}</th><th>{% trans "Tone" %}</th><th>{% trans "Translation review" %}</th></tr>
+        </thead>
+        <tbody>
+          {% for locale in locales %}
+            <tr>
+              <td><label for="supertext-code-{{ locale.id }}">{{ locale.name }}</label> <code>{{ locale.code }}</code>{% if locale.is_source %}<p class="help">{% trans "Source language" %}</p>{% endif %}</td>
+              <td>
+                {% if locale.override %}
+                  <code>{{ locale.override }}</code>
+                  <p class="help">{% trans "Set in the LANGUAGES option" %}</p>
+                {% else %}
+                  <select name="code-{{ locale.id }}" id="supertext-code-{{ locale.id }}" data-supertext-code="{{ locale.id }}">
+                    <option value=""{% if not locale.selected %} selected{% endif %}>{% trans "— choose —" %}</option>
+                    {% for option in target_options %}
+                      <option value="{{ option.code }}" data-politeness="{{ option.politeness|yesno:'1,0' }}"{% if option.code == locale.selected %} selected{% endif %}>{{ option.label }}</option>
+                    {% endfor %}
+                  </select>
+                  {% if locale.missing %}<p class="help supertext-check supertext-check--fail">{% trans "No Supertext language: choose one, or this locale can't be translated" %}</p>{% endif %}
+                {% endif %}
+              </td>
+              <td>
+                {% if locale.politeness_override %}
+                  {% if locale.politeness == "more" %}{% trans "Formal (Sie, vous)" %}{% elif locale.politeness == "less" %}{% trans "Informal (du, tu)" %}{% else %}{% trans "Default" %}{% endif %}
+                  <p class="help">{% trans "Set in the LANGUAGES option" %}</p>
+                  {% if locale.politeness != "default" and locale.politeness_supported is False %}<p class="help supertext-check supertext-check--fail">{% trans "Supertext offers no formal/informal choice for this language" %}</p>{% endif %}
+                {% else %}
+                  <select name="politeness-{{ locale.id }}" aria-label="{% trans "Tone" %}" data-supertext-politeness="{{ locale.id }}"{% if not locale.politeness_supported %} hidden{% endif %}>
+                    <option value="default"{% if locale.politeness == "default" %} selected{% endif %}>{% trans "Default" %}</option>
+                    <option value="more"{% if locale.politeness == "more" %} selected{% endif %}>{% trans "Formal (Sie, vous)" %}</option>
+                    <option value="less"{% if locale.politeness == "less" %} selected{% endif %}>{% trans "Informal (du, tu)" %}</option>
+                  </select>
+                  <span data-supertext-no-politeness="{{ locale.id }}"{% if locale.politeness_supported %} hidden{% endif %}>–</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if locale.review_override is not None %}
+                  {% if locale.review %}{% trans "On" %}{% else %}{% trans "Off" %}{% endif %}
+                  <p class="help">{% trans "Set in the LANGUAGES option" %}</p>
+                {% elif options.review_available %}
+                  <input type="checkbox" name="review-{{ locale.id }}" value="1" id="supertext-review-{{ locale.id }}" aria-label="{% trans "Translation review" %}: {{ locale.name }}"{% if locale.review %} checked{% endif %}>
+                {% else %}
+                  –
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <button type="submit" class="button">{% trans "Save languages" %}</button>
+    </form>
   </section>
+
+  <script>
+    // Formal/informal only where the chosen Supertext language offers it.
+    document.querySelectorAll("[data-supertext-code]").forEach(function (select) {
+      var id = select.getAttribute("data-supertext-code");
+      var tone = document.querySelector('[data-supertext-politeness="' + id + '"]');
+      var none = document.querySelector('[data-supertext-no-politeness="' + id + '"]');
+      if (!tone || !none) return;
+      function update() {
+        var option = select.options[select.selectedIndex];
+        var supported = !!option && option.getAttribute("data-politeness") === "1";
+        tone.hidden = !supported;
+        none.hidden = supported;
+      }
+      select.addEventListener("change", update);
+      update();
+    });
+  </script>
 
   <style>
     .supertext-config { display: grid; grid-template-columns: max-content 1fr; gap: .5rem 1.5rem; margin: 1rem 0 1.5rem; }
@@ -77,5 +140,9 @@
     .supertext-config dd .help { margin: .25rem 0 0; }
     .supertext-check--ok { color: var(--w-color-text-success, #1b7f4c); }
     .supertext-check--fail { color: var(--w-color-text-error, #cd4444); }
+    .supertext-languages select { max-width: 22rem; }
+    .supertext-languages [hidden] { display: none !important; }
+    .supertext-languages td .help { margin: .25rem 0 0; }
+    .supertext-languages .button { margin-top: 1rem; }
   </style>
 {% endblock %}

@@ -44,12 +44,10 @@ from ._vendor.plugin_health import (
 )
 from ._vendor.supertext import SDK_VERSION
 from ._vendor.supertext import v1 as sdk
-from .client import API_KEY_URL, SIGNUP_URL, RequestsTransport
+from .client import API_KEY_URL, PLUGIN_NAME, SIGNUP_URL, RequestsTransport, user_agent
 
 logger = logging.getLogger(__name__)
 
-#: The GitHub repository name (the center reads the latest release from it).
-PLUGIN_NAME = "Wagtail-Supertext-Translation"
 STATE_KEY = "reporter"
 
 #: Runs reporter actions after the request in a thread; tests set it to False (same thread).
@@ -125,7 +123,7 @@ def last_check() -> KeyCheck | None:
 def key_client(options, api_key: str, http) -> sdk.SupertextClient:
     """The SDK client for the key check (the configured API URL, the plugin's user agent and transport)."""
     return sdk.SupertextClient(
-        api_key, base_url=options.base_url, user_agent=f"wagtail-supertext-translation/{__version__}", transport=http
+        api_key, base_url=options.base_url, user_agent=user_agent(), transport=http
     )
 
 
@@ -157,7 +155,7 @@ def reporter(options, request=None) -> InstallationReporter | None:
 def run(action: str, options, request=None, http_status: int = 401) -> ReporterResult | None:
     """Runs one reporter action with the stored state and stores the new state. Never raises.
 
-    ``action``: ``on_request``, ``test_connection``, ``authentication_failed`` or ``report_check``.
+    ``action``: ``on_request``, ``settings_saved``, ``test_connection``, ``authentication_failed`` or ``report_check``.
     """
     with _lock:
         try:
@@ -174,6 +172,8 @@ def run(action: str, options, request=None, http_status: int = 401) -> ReporterR
                 return ReporterResult(state, state.key_check, None, False)
             if action == "test_connection":
                 result = current.test_connection(state, options.api_key)
+            elif action == "settings_saved":
+                result = current.after_settings_saved(state, options.api_key)
             elif action == "authentication_failed":
                 result = current.authentication_failed(state, options.api_key, http_status)
             elif action == "report_check":

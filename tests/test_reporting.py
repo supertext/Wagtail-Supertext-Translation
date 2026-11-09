@@ -33,7 +33,7 @@ def test_first_admin_request_reports_installed(admin, center):
     assert report["site_url"] == "http://testserver"
     assert report["plugin"] == {"name": "Wagtail-Supertext-Translation", "version": __version__}
     assert report["system"]["name"] == "Wagtail" and report["runtime"]["name"] == "Python"
-    assert report["sdk_version"] == "0.3.0"
+    assert report["sdk_version"] == "0.5.0"
     assert report["api_key_configured"] is True and report["api_key_check"]["status"] == "ok"
     assert report["callback"] == {"url": "http://testserver/supertext/ping"}
     assert "test-key" not in json.dumps(report)
@@ -189,11 +189,38 @@ def test_site_url_from_wagtail_settings(settings, rf):
     assert reporting.site_url(rf.get("/", HTTP_HOST="wagtail.example.ch")) == "http://wagtail.example.ch"
 
 
-def test_status_page_marks_unmapped_languages(admin, settings):
-    Locale.objects.get_or_create(language_code="es-es")
+def test_status_page_language_selects(admin, settings):
+    es = Locale.objects.get_or_create(language_code="es-es")[0]
+    li = Locale.objects.get_or_create(language_code="de-li")[0]
+    fr = Locale.objects.get_or_create(language_code="fr-ch")[0]
     settings.WAGTAILLOCALIZE_MACHINE_TRANSLATOR = {
         **settings.WAGTAILLOCALIZE_MACHINE_TRANSLATOR,
-        "OPTIONS": {"API_KEY": "test-key", "LANGUAGES": {"fr-ch": {"politeness": "more"}}},
+        "OPTIONS": {"API_KEY": "test-key", "LANGUAGES": {"fr-ch": {"code": "fr-FR", "politeness": "more"}}},
     }
     html = admin.get("/admin/supertext/").content.decode()
-    assert "Not mapped: set code in the LANGUAGES option" in html
+    # es-es: the SDK's default is preselected; de-li has no default: "— choose —" and a warning.
+    assert f'name="code-{es.pk}"' in html and '<option value="es" data-politeness="1" selected>' in html
+    assert f'name="code-{li.pk}"' in html
+    assert html.count("No Supertext language: choose one") == 1
+    # fr-ch is set in the LANGUAGES option: no select, the option is shown.
+    assert f'name="code-{fr.pk}"' not in html and "Set in the LANGUAGES option" in html
+
+
+def test_status_page_saves_languages(admin):
+    from wagtail_supertext.models import SupertextLanguage
+
+    li = Locale.objects.get_or_create(language_code="de-li")[0]
+    en = Locale.objects.get_or_create(language_code="en")[0]
+    response = admin.post(
+        "/admin/supertext/",
+        {"action": "languages", f"code-{li.pk}": "de-CH", f"politeness-{li.pk}": "more",
+         f"code-{en.pk}": "en-US", f"politeness-{en.pk}": "more"},
+    )
+    assert response.status_code == 302
+    assert SupertextLanguage.objects.get(locale=li).code == "de-CH"
+    assert SupertextLanguage.objects.get(locale=li).politeness == "more"
+    # en-US offers no formal/informal: stored as the default tone.
+    assert SupertextLanguage.objects.get(locale=en).politeness == "default"
+    # A code that isn't in Supertext's list is refused.
+    admin.post("/admin/supertext/", {"action": "languages", f"code-{li.pk}": "xx-YY"})
+    assert SupertextLanguage.objects.get(locale=li).code == ""

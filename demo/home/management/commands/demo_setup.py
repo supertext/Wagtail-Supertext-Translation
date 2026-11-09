@@ -2,7 +2,7 @@
 `python manage.py demo_setup` runs on every start of the demo container:
 
 - creates the DEMO_ADMIN / DEMO_EDITOR accounts if missing (never changes existing ones)
-- creates the locales, replaces Wagtail's welcome page with the demo home page once,
+- creates the locales (with the formal tone under Settings → Supertext, once), replaces Wagtail's welcome page with the demo home page once,
   and adds the English sample article once
 - lets the editor group submit translations
 """
@@ -16,6 +16,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand
 from wagtail.models import Locale, Page, Site
+from wagtail_supertext.models import SupertextLanguage
 
 from home.models import ArticlePage, HomePage
 
@@ -80,7 +81,11 @@ class Command(BaseCommand):
 
     def ensure_locales(self):
         for code, _name in settings.WAGTAIL_CONTENT_LANGUAGES:
-            Locale.objects.get_or_create(language_code=code)
+            locale, _created = Locale.objects.get_or_create(language_code=code)
+            if code != settings.LANGUAGE_CODE:
+                # Settings → Supertext: the suggested language with the formal tone (Sie, vous, Lei),
+                # only if nobody has chosen anything for this locale yet.
+                SupertextLanguage.objects.get_or_create(locale=locale, defaults={"politeness": "more"})
 
     def ensure_content(self):
         en = Locale.objects.get(language_code="en")

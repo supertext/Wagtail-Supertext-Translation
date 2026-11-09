@@ -41,6 +41,12 @@ ENVIRONMENTS = {
     "staging": "https://api.staging.supertext.com/v1/",
     "testing": "https://api.testing.supertext.com/v1/",
 }
+#: Supertext's review service (the translation proxy of Supertext Localization Review). It speaks the
+#: same API v1 and forwards to the live Supertext API with the plugin's key, keeping every translation
+#: so reviewers can correct them on the website. Used for locales with *Translation review* on.
+REVIEW_URL = "https://localizationreview-production.up.railway.app/v1/"
+#: The GitHub repository name: the User-Agent (with the version) and the version reports name the plugin by it.
+PLUGIN_NAME = "Wagtail-Supertext-Translation"
 SIGNUP_URL = "https://www.supertext.com/person/en/account/signin"
 #: supertext.com → Integrations → API (requires the Admin role).
 API_KEY_URL = "https://www.supertext.com/en/integrations/api"
@@ -48,7 +54,7 @@ API_KEY_URL = "https://www.supertext.com/en/integrations/api"
 #: Stay well below the API's 1,000,000 character limit per document.
 MAX_DOCUMENT_CHARACTERS = sdk.DEFAULT_MAX_CHARACTERS
 
-__all__ = ["SDK_VERSION", "Languages", "SupertextClient", "SupertextError"]
+__all__ = ["REVIEW_URL", "SDK_VERSION", "Languages", "SupertextClient", "SupertextError", "user_agent"]
 
 
 def gettext_noop(message: str) -> str:
@@ -69,15 +75,15 @@ MESSAGES: dict[str, str] = {
         "Generate a new API key at %(api_key_url)s (requires the Admin role)."
     ),
     ErrorCode.INVALID_LANGUAGE_PAIR: gettext_noop(
-        "Supertext does not support this language pair. Check the language mapping (the LANGUAGES option)."
+        "Supertext does not support this language pair. Check the languages under Settings → Supertext → Languages."
     ),
     ErrorCode.UNSUPPORTED_LANGUAGE: gettext_noop(
-        "The language %(language)s has no Supertext language yet. Ask your administrator to map it "
-        "(the LANGUAGES option, e.g. {'de': {'code': 'de-CH'}})."
+        "The language %(language)s has no Supertext language yet. Ask your administrator to choose one "
+        "under Settings → Supertext → Languages."
     ),
     ErrorCode.UNSUPPORTED_FEATURE: gettext_noop(
         "Supertext offers no formal or informal tone for this language. Set it to the default tone "
-        "(remove politeness from the LANGUAGES option)."
+        "under Settings → Supertext → Languages (or remove politeness from the LANGUAGES option)."
     ),
     ErrorCode.NOT_FOUND: gettext_noop("The requested Supertext resource was not found."),
     ErrorCode.PAYLOAD_TOO_LARGE: gettext_noop("The content is too large for Supertext to translate in one go."),
@@ -139,6 +145,13 @@ def base_url_for(environment: str = "live", endpoint: str = "") -> str:
     return url.rstrip("/") + "/"
 
 
+def user_agent() -> str:
+    """``Wagtail-Supertext-Translation/<version>``: Supertext and the review service see which release calls."""
+    from . import __version__
+
+    return f"{PLUGIN_NAME}/{__version__}"
+
+
 class RequestsTransport:
     """Sends the SDK's requests with ``requests`` (honours proxies and certificate settings)."""
 
@@ -168,8 +181,6 @@ class SupertextClient:
         session: requests.Session | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ):
-        from . import __version__
-
         self.api_key = normalize_key(api_key)
         self.base_url = (base_url or LIVE).rstrip("/") + "/"
         self.transport = RequestsTransport(session or requests.Session())
@@ -179,7 +190,7 @@ class SupertextClient:
             poll_interval=poll_interval,
             timeout=poll_timeout,
             request_timeout=request_timeout,
-            user_agent=f"wagtail-supertext-translation/{__version__}",
+            user_agent=user_agent(),
             transport=self.transport,
             sleep=sleep,
         )

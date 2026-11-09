@@ -19,8 +19,8 @@ def fake(monkeypatch):
     session = FakeSession()
     from wagtail_supertext.translator import SupertextTranslator
 
-    def client(self):
-        return self.config.client(session=session, sleep=lambda s: None)
+    def client(self, review=False):
+        return self.config.client(review=review, session=session, sleep=lambda s: None)
 
     monkeypatch.setattr(SupertextTranslator, "client", client)
     monkeypatch.delenv("SUPERTEXT_API_KEY", raising=False)
@@ -96,8 +96,8 @@ def test_errors_become_a_message_in_the_editor(monkeypatch, page, client):
     session = FakeSession(statuses=["limit_exceeded"])
     from wagtail_supertext.translator import SupertextTranslator
 
-    def fake_client(self):
-        return self.config.client(session=session, sleep=lambda s: None)
+    def fake_client(self, review=False):
+        return self.config.client(review=review, session=session, sleep=lambda s: None)
 
     monkeypatch.setattr(SupertextTranslator, "client", fake_client)
     user = get_user_model().objects.create_superuser("admin", "admin@example.com", "pw")
@@ -135,21 +135,35 @@ def test_status_page_shows_version(client):
     assert release_url("1.2.3.dev0") is None
 
 
-def test_unmapped_language_is_not_sent(fake, page, settings):
-    """A locale whose code isn't a Supertext code: a message, and nothing goes to Supertext."""
+def test_language_without_default_is_not_sent(fake, page, settings):
+    """A locale without mapping and without SDK default: a message, and nothing goes to Supertext."""
     from wagtail_supertext.client import SupertextError
+    from wagtail_supertext.models import SupertextLanguage
     from wagtail_supertext.translator import SupertextTranslator
 
     translator = SupertextTranslator({"API_KEY": "test-key"})
-    en, es = Locale.objects.get(language_code="en"), Locale(language_code="es-es")
-    assert translator.can_translate(en, es)  # the button stays, so the editor gets the message
-    with pytest.raises(SupertextError, match="The language es-es has no Supertext language yet") as info:
-        translator.translate(en, es, [StringValue.from_plaintext("Hello")])
+    en, li = Locale.objects.get(language_code="en"), Locale.objects.create(language_code="de-li")
+    assert translator.can_translate(en, li)  # the button stays, so the editor gets the message
+    with pytest.raises(SupertextError, match="The language de-li has no Supertext language yet") as info:
+        translator.translate(en, li, [StringValue.from_plaintext("Hello")])
     assert info.value.code == "unsupported_language"
+    assert "Settings → Supertext → Languages" in str(info.value)
     assert fake.calls == []
 
-    mapped = SupertextTranslator({"API_KEY": "test-key", "LANGUAGES": {"es-es": {"code": "es"}}})
-    out = mapped.translate(en, es, [StringValue.from_plaintext("Hello")])
+    # Chosen under Settings → Supertext: read from the database.
+    SupertextLanguage.objects.create(locale=li, code="de-CH", politeness="more")
+    out = SupertextTranslator({"API_KEY": "test-key"}).translate(en, li, [StringValue.from_plaintext("Hello")])
+    assert fake.calls[0]["data"]["target_lang"] == "de-CH"
+    assert fake.calls[0]["data"]["politeness"] == "more"
+    assert list(out.values())[0].render_text() == "[de-CH] Hello"
+
+
+def test_language_with_default_is_translated(fake, page):
+    """es-es has no exact match but a default (es): sent without any mapping."""
+    from wagtail_supertext.translator import SupertextTranslator
+
+    en, es = Locale.objects.get(language_code="en"), Locale(language_code="es-es")
+    out = SupertextTranslator({"API_KEY": "test-key"}).translate(en, es, [StringValue.from_plaintext("Hello")])
     assert fake.calls[0]["data"]["target_lang"] == "es"
     assert list(out.values())[0].render_text() == "[es] Hello"
 

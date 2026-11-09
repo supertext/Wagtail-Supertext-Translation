@@ -41,14 +41,35 @@ def test_supertext_language_codes_without_guessing():
     assert options.source_code("zh-cn") == "zh"
 
 
-@pytest.mark.parametrize("code", ["fr", "en", "es-ES", "sl-SI", "zh-CN", "de_DE_formal", "xx"])
-def test_unmapped_languages_are_not_guessed(code):
-    options = load({})
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [("fr", "fr-FR"), ("en", "en-US"), ("de", "de-DE"), ("es-ES", "es"), ("sl-SI", "sl"), ("zh-CN", "zh-Hans"), ("zh-tw", "zh-Hant")],
+)
+def test_unmapped_languages_use_the_sdk_default(code, expected):
+    assert load({}, saved={}).target_code(code) == expected
+
+
+@pytest.mark.parametrize("code", ["en-IE", "de-LI", "gsw", "sr-RS", "de_DE_formal", "xx"])
+def test_languages_without_default_are_not_guessed(code):
+    options = load({}, saved={})
     with pytest.raises(SupertextError) as info:
         options.target_code(code)
     assert info.value.code == "unsupported_language"
     assert info.value.params == {"language": code}
     assert options.target_code_or_none(code) is None
+
+
+def test_settings_page_choice_and_languages_option():
+    saved = {"de-li": {"code": "de-CH", "politeness": "more"}, "fr": {"code": "fr-CH", "politeness": "less"}}
+    options = load({"LANGUAGES": {"FR": {"code": "fr-FR"}}}, saved=saved)
+    assert options.target_code("de-li") == "de-CH"
+    assert options.source_code("de-li") == "de"
+    assert options.politeness("de-li") == "more"
+    # The LANGUAGES option wins over the settings page; its politeness isn't set, so the saved one applies.
+    assert options.target_code("fr") == "fr-FR"
+    assert options.override_code("fr") == "fr-FR" and options.override_politeness("fr") == ""
+    assert options.politeness("fr") == "less"
+    assert load({"LANGUAGES": {"fr": {"politeness": "default"}}}, saved=saved).politeness("fr") == "default"
 
 
 def test_one_mapping_for_both_directions():
@@ -69,7 +90,8 @@ def test_politeness_support():
     options = load({"LANGUAGES": {"en-us": {"politeness": "more"}, "de-ch": {"politeness": "more"}}})
     assert options.politeness_supported("de-ch") is True
     assert options.politeness_supported("en-us") is False
-    assert options.politeness_supported("de") is None  # not mapped
+    assert options.politeness_supported("de") is True  # the default de-DE
+    assert load({}, saved={}).politeness_supported("en-ie") is None  # no mapping, no default
 
 
 def test_version_reports_setting(monkeypatch):

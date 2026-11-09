@@ -7,6 +7,7 @@
  *   DEMO_ADMIN_EMAIL / DEMO_ADMIN_PASSWORD     settings screens (superuser)
  *   DEMO_EDITOR_EMAIL / DEMO_EDITOR_PASSWORD   translating (Moderators group)
  */
+import { readFileSync } from 'node:fs'
 import { chromium } from 'playwright'
 
 const B = process.env.BASE_URL || 'http://127.0.0.1:8093'
@@ -16,6 +17,19 @@ const FIXED_TIME = 'Oct. 13, 2026, 9:41 a.m.' // Django's DATETIME_FORMAT in Eng
 const pad = (r, p = 8) => ({ x: Math.max(0, r.x - p), y: Math.max(0, r.y - p), width: r.width + 2 * p, height: r.height + 2 * p })
 
 const browser = await chromium.launch()
+
+/** An exported HTML file "translated" with samples.json (what the translator would send back). */
+const SAMPLES = JSON.parse(readFileSync(new URL('samples.json', import.meta.url), 'utf8'))
+const norm = (s) => s.replace(/\s+/g, ' ').replace(/> </g, '><').trim()
+const decode = (s) => s.replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+const encode = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+function translateHtml(html, lang) {
+  const known = new Map(Object.entries(SAMPLES[lang]).map(([k, v]) => [norm(k), v]))
+  return html.replace(/(<div data-st-id="[^"]+">)([\s\S]*?)(<\/div>)/g, (all, open, inner, close) => {
+    const hit = known.get(norm(inner)) ?? known.get(norm(decode(inner)))
+    return hit === undefined ? all : open + (known.has(norm(inner)) ? hit : encode(hit)) + close
+  })
+}
 
 async function session(email, password) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 860 } })
@@ -62,6 +76,8 @@ async function pageId(page, title) {
   })
   await page.setViewportSize({ width: 1280, height: Math.min(height, 1500) })
   await shot('settings-supertext')
+  // The Languages section alone: one drop-down per locale (Settings → Supertext → Languages).
+  await shot('settings-languages', await box(page.locator('section').filter({ has: page.locator('form.supertext-languages') })))
   await page.setViewportSize({ width: 1280, height: 860 })
 
   await go('/admin/locales/')
@@ -119,6 +135,23 @@ async function pageId(page, title) {
   await page.goto(B + german)
   await page.waitForLoadState('networkidle')
   await shot('translated-page', { x: 0, y: 0, width: 1280, height: 640 })
+
+  // Settings → Translation files: export the article as HTML for French, translate it, import it.
+  await page.setViewportSize({ width: 1280, height: 1300 })
+  await go('/admin/supertext/files/')
+  const article = await page.locator('#supertext-source option', { hasText: 'Swiss chocolate, shipped worldwide' }).first().getAttribute('value')
+  await Promise.all([page.waitForNavigation(), page.selectOption('#supertext-source', article)])
+  await page.waitForLoadState('networkidle')
+  await page.locator('input[name=format][value=html]').check()
+  for (const target of await page.locator('input[name=targets]').all()) await target.uncheck()
+  await page.locator('.supertext-files-export label', { hasText: 'fr-ch' }).locator('input').check()
+  await shot('files-export', await box('#supertext-export'))
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download file' }).click()])
+  const exported = readFileSync(await download.path(), 'utf8')
+  await page.setInputFiles('#supertext-file', { name: download.suggestedFilename(), mimeType: 'text/html', buffer: Buffer.from(translateHtml(exported, 'fr')) })
+  await page.getByRole('button', { name: 'Import translation' }).click()
+  await page.waitForLoadState('networkidle')
+  await shot('files-import', await box('#supertext-import'))
 }
 
 await browser.close()

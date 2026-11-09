@@ -124,16 +124,10 @@ WAGTAILADMIN_BASE_URL = os.environ.get("WAGTAILADMIN_BASE_URL", "http://localhos
 WAGTAILSEARCH_BACKENDS = {"default": {"BACKEND": "wagtail.search.backends.database"}}
 
 # Supertext as wagtail-localize's machine translator. The key comes from SUPERTEXT_API_KEY.
+# The languages are chosen under Settings → Supertext (demo_setup preselects the formal tone once).
 WAGTAILLOCALIZE_MACHINE_TRANSLATOR = {
     "CLASS": "wagtail_supertext.SupertextTranslator",
-    "OPTIONS": {
-        "API_KEY": os.environ.get("SUPERTEXT_API_KEY", ""),
-        "LANGUAGES": {
-            "de-ch": {"politeness": "more"},
-            "fr-ch": {"politeness": "more"},
-            "it-ch": {"politeness": "more"},
-        },
-    },
+    "OPTIONS": {"API_KEY": os.environ.get("SUPERTEXT_API_KEY", "")},
 }
 
 LOGGING = {

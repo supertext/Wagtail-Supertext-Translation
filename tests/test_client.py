@@ -89,7 +89,7 @@ def test_authentication_error():
 def test_sdk_is_v1():
     from wagtail_supertext._vendor.supertext import v1
 
-    assert SDK_VERSION == "0.3.0"
+    assert SDK_VERSION == "0.5.0"
     assert v1.Languages.match_target("de_ch") == "de-CH"
 
 
