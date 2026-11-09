@@ -15,8 +15,8 @@ jobs:
     strategy:
       matrix:
         include:
-          - { python: '3.11', wagtail: 'wagtail>=7.0,<7.1', django: 'django>=5.2,<5.3' }
-          - { python: '3.12', wagtail: 'wagtail>=7.4,<7.5', django: 'django>=5.2,<5.3' }
+          - { python: '3.11', wagtail: 'wagtail>=7.4,<7.5', django: 'django>=5.2,<5.3' }
+          - { python: '3.12', wagtail: 'wagtail>=7.4,<7.5', django: 'django>=6.0,<6.1' }
           - { python: '3.13', wagtail: 'wagtail>=8.0,<8.1', django: 'django>=6.1,<6.2' }
           - { python: '3.14', wagtail: 'wagtail>=8.0,<8.1', django: 'django>=6.1,<6.2' }
           - { python: '3.14', wagtail: 'wagtail>=8.1,<8.2', django: 'django>=6.1,<6.2' }
@@ -59,7 +59,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: '3.13'
+          python-version: '3.14'
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'

@@ -4,6 +4,9 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+- Removed: support for Wagtail 7.0 LTS (end of life since 2 November 2026); the minimum is now Wagtail 7.4 LTS.
+- Removed: support for Python 3.10 (end of life since October 2026); the minimum is now Python 3.11.
+- Changed: the demo runs on Python 3.14; CI also tests Wagtail 7.4 with Django 6.0.
 - Added: support for Wagtail 8.1 (tested in CI with Django 6.1 on Python 3.14); the demo runs Wagtail 8.1 and psycopg 3.3.8.
 - Docs: demo movie in the README (`docs/images/demo.gif`, recorded from the demo against the stand-in with `tests/docs/movie.mjs`; the MP4 version, not committed, is narrated with the Piper voice “alba”) and an install and configuration movie (`tests/docs/movie-install.mjs`: pip install, settings, `urls.py`, `migrate`, `SUPERTEXT_API_KEY` and `supertext_check`, then *Settings → Supertext* with *Test connection* and the Languages table; narrated MP4, not committed). The stand-in can keep files `in_progress` for a while (`STAND_IN_DELAY`).
 - Added: the Supertext support form is linked in the README, the user guide and GitHub's "New issue" page.
