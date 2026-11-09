@@ -151,16 +151,26 @@ async function pageId(page, title) {
   // html_url can be null right after translating: Wagtail caches the site root paths (one hour, per
   // worker) and the German home page didn't exist when they were cached. The demo's URLs are
   // /<locale>/<slug>/ (i18n_patterns, the article sits right under the locale's home page).
-  // The page's live link in the editor (Wagtail 8.1 has no admin pages API any more).
-  const german = await page.evaluate(async () => {
+  const germanPath = await page.evaluate(async () => {
     const r = await fetch('/admin/api/main/pages/?type=home.ArticlePage&locale=de-ch')
     if ((r.headers.get('content-type') ?? '').includes('json')) {
       const item = (await r.json()).items[0]
       return item?.meta?.html_url ? new URL(item.meta.html_url).pathname : `/de-ch/${item?.meta?.slug}/`
     }
-    const link = [...document.querySelectorAll('a[href*="/de-ch/"]')].find((a) => !new URL(a.href).pathname.startsWith('/admin/'))
-    return link ? new URL(link.href).pathname : undefined
+    return undefined
   })
+  // Wagtail 8.1: the page's slug from its edit form (the demo's URLs are /<locale>/<slug>/).
+  const german = germanPath ?? await page.evaluate(async (id) => {
+    const html = await (await fetch(`/admin/pages/${id}/edit/`)).text()
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    // The page form's slug field, or (wagtail-localize's translation editor) its live link or page data.
+    const slug = doc.querySelector('input[name="slug"]')?.value
+    if (slug) return `/de-ch/${slug}/`
+    const live = [...doc.querySelectorAll('a[href*="/de-ch/"]')].map((a) => new URL(a.getAttribute('href'), location.href).pathname).find((p) => !p.startsWith('/admin/'))
+    if (live) return live
+    const data = html.match(/\/de-ch\/[a-z0-9-]+\//)
+    return data ? data[0] : undefined
+  }, germanId)
   if (!german) throw new Error('No live link of the German page in the editor')
   await page.goto(B + german)
   await page.waitForLoadState('networkidle')
