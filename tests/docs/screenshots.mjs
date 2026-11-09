@@ -51,6 +51,21 @@ async function session(email, password) {
   return { page, shot, box, go }
 }
 
+/** The id of a page's translation (the admin explorer API of Wagtail 8.1; earlier versions' pages API). */
+async function translationId(page, sourceId, locale) {
+  return page.evaluate(async ([sourceId, locale]) => {
+    const old = await fetch(`/admin/api/main/pages/?type=home.ArticlePage&locale=${locale}`)
+    if ((old.headers.get('content-type') ?? '').includes('json')) return (await old.json()).items[0]?.id
+    const explorer = async (id) => (await fetch(`/admin/api/explorer/${id}/`)).json()
+    const source = await explorer(sourceId)
+    const parent = await explorer(source.page.meta.parent.id)
+    const home = parent.translations.find((t) => t.locale === locale)
+    if (!home) return undefined
+    const children = await explorer(home.id)
+    return children.children.items.find((p) => p.meta.type === source.page.meta.type)?.id
+  }, [sourceId, locale])
+}
+
 async function pageId(page, title) {
   // The admin API (Wagtail 8.0 and earlier) or, where it is gone (8.1), the admin's page search.
   return page.evaluate(async (t) => {
@@ -117,10 +132,7 @@ async function pageId(page, title) {
   await shot('submitted', { x: 200, y: 0, width: 1080, height: 300 })
 
   // Open the German translation: the translation editor
-  const germanId = await page.evaluate(async () => {
-    const r = await fetch('/admin/api/main/pages/?type=home.ArticlePage&locale=de-ch')
-    return (await r.json()).items[0]?.id
-  })
+  const germanId = await translationId(page, id, 'de-ch')
   await go(`/admin/pages/${germanId}/edit/`)
   await page.waitForTimeout(1500)
   await shot('translation-editor', { x: 200, y: 0, width: 1080, height: 860 })
@@ -139,11 +151,17 @@ async function pageId(page, title) {
   // html_url can be null right after translating: Wagtail caches the site root paths (one hour, per
   // worker) and the German home page didn't exist when they were cached. The demo's URLs are
   // /<locale>/<slug>/ (i18n_patterns, the article sits right under the locale's home page).
+  // The page's live link in the editor (Wagtail 8.1 has no admin pages API any more).
   const german = await page.evaluate(async () => {
     const r = await fetch('/admin/api/main/pages/?type=home.ArticlePage&locale=de-ch')
-    const item = (await r.json()).items[0]
-    return item?.meta?.html_url ? new URL(item.meta.html_url).pathname : `/de-ch/${item?.meta?.slug}/`
+    if ((r.headers.get('content-type') ?? '').includes('json')) {
+      const item = (await r.json()).items[0]
+      return item?.meta?.html_url ? new URL(item.meta.html_url).pathname : `/de-ch/${item?.meta?.slug}/`
+    }
+    const link = [...document.querySelectorAll('a[href*="/de-ch/"]')].find((a) => !new URL(a.href).pathname.startsWith('/admin/'))
+    return link ? new URL(link.href).pathname : undefined
   })
+  if (!german) throw new Error('No live link of the German page in the editor')
   await page.goto(B + german)
   await page.waitForLoadState('networkidle')
   await shot('translated-page', { x: 0, y: 0, width: 1280, height: 640 })
