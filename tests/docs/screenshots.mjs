@@ -52,9 +52,21 @@ async function session(email, password) {
 }
 
 async function pageId(page, title) {
+  // The admin API (Wagtail 8.0 and earlier) or, where it is gone (8.1), the admin's page search.
   return page.evaluate(async (t) => {
     const r = await fetch('/admin/api/main/pages/?search=' + encodeURIComponent(t))
-    return (await r.json()).items.find((p) => p.title === t)?.id
+    if ((r.headers.get('content-type') ?? '').includes('json')) {
+      const id = (await r.json()).items.find((p) => p.title === t)?.id
+      if (id) return id
+    }
+    for (const url of ['/admin/pages/search/results/?q=', '/admin/pages/search/?q=']) {
+      const html = await (await fetch(url + encodeURIComponent(t))).text()
+      const doc = new DOMParser().parseFromString(html, 'text/html')
+      for (const a of doc.querySelectorAll('a[href*="/admin/pages/"][href$="/edit/"]')) {
+        if (a.textContent.replace(/\s+/g, ' ').trim().startsWith(t)) return Number(a.getAttribute('href').match(/\/pages\/(\d+)\/edit\//)[1])
+      }
+    }
+    return undefined
   }, title)
 }
 
