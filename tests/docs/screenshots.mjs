@@ -162,10 +162,12 @@ async function pageId(page, title) {
   })
   // Wagtail 8.1: no pages API, and the German page often has no live link yet (Wagtail caches the
   // site root paths). Collect candidate paths (/<locale>/<slug>/) and take the first the site serves.
-  const found = germanPath ? { path: germanPath } : await page.evaluate(async ([id, sourceId]) => {
+  const found = germanPath ? { path: germanPath } : await page.evaluate(async ([id, sourceId, standInTitle]) => {
     const tried = []
     const add = (p) => { if (p && /^\/de-ch\/[^/]+\/$/.test(p) && !tried.includes(p)) tried.push(p) }
     const fromSlug = (slug) => slug ? `/de-ch/${slug}/` : undefined
+    // The translated slug, as Wagtail makes it from the German title.
+    const slugify = (t) => t.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
     const editForm = async (pid) => {
       const html = await (await fetch(`/admin/pages/${pid}/edit/`)).text()
       return { html, doc: new DOMParser().parseFromString(html, 'text/html') }
@@ -176,10 +178,14 @@ async function pageId(page, title) {
     for (const m of german.html.replace(/\\u002F|\\\//g, '/').matchAll(/\/de-ch\/[a-z0-9-]+\//g)) add(m[0])
     const r = await fetch(`/admin/api/explorer/${id}/`)
     if ((r.headers.get('content-type') ?? '').includes('json')) {
-      const meta = (await r.json()).page?.meta ?? {}
+      const { page = {} } = await r.json()
+      const meta = page.meta ?? {}
       if (meta.html_url) add(new URL(meta.html_url).pathname)
       add(fromSlug(meta.slug))
+      if (page.title) add(fromSlug(slugify(page.title)))
     }
+    // wagtail-localize translates the slug: the stand-in's German title, slugified (Schweizer Schokolade …).
+    add(fromSlug(slugify(standInTitle)))
     // wagtail-localize keeps the source slug unless it is translated.
     add(fromSlug((await editForm(sourceId)).doc.querySelector('input[name="slug"]')?.value))
     // Publishing may still be finishing: give the site up to 30 seconds.
@@ -188,7 +194,7 @@ async function pageId(page, title) {
       await new Promise((resolve) => setTimeout(resolve, 2000))
     }
     return { tried }
-  }, [germanId, id])
+  }, [germanId, id, SAMPLES.de['Swiss chocolate, shipped worldwide']])
   const german = found.path
   if (!german) console.error('Tried for the German page:', found.tried)
   if (!german) throw new Error('The German page is not served at any of the paths tried')
