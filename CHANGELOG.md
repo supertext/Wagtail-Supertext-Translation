@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 1.0.0 — 2026-11-10
+
+First stable release. Every plugin release is now tested end to end against the live Supertext API (`.github/workflows/e2e.yml`).
+
 - Removed: support for Wagtail 7.0 LTS (end of life since 2 November 2026); the minimum is now Wagtail 7.4 LTS.
 - Removed: support for Python 3.10 (end of life since October 2026); the minimum is now Python 3.11.
 - Changed: the demo runs on Python 3.14; CI also tests Wagtail 7.4 with Django 6.0.
