@@ -154,6 +154,29 @@ CI (`.github/workflows/ci.yml`) on every push and pull request:
 - **test**: the suite on Python 3.11 with Wagtail 7.4 and Django 5.2, 3.12 with Wagtail 7.4 and Django 6.0, 3.13 and 3.14 with Wagtail 8.0 and Django 6.1, and 3.14 with Wagtail 8.1 and Django 6.1.
 - **demo**: installs the demo, runs migrations and `demo_setup` twice against PostgreSQL, `supertext_check`, checks the `installed` and `check` reports the stand-in center received (plugin name, ping URL, no key) and the ping endpoint, then translates the home page and the sample article into German through the stand-in API and checks the title, slug and markup.
 
+`.github/workflows/checks.yml` and `links.yml` lint the workflows and check the links. `.github/workflows/e2e.yml` runs the end-to-end test against the real Supertext API and regenerates the docs screenshots (see *End-to-end tests*).
+
+## End-to-end tests
+
+The tests above use fakes and the stand-in. `.github/workflows/e2e.yml` also tests against the **real Supertext API**, so changes on Supertext's side (language codes, regional variants, markup, rate limits) show up. It runs on every push to `main` that touches the package, the demo or the tests, on pull requests that change the E2E test or workflow, every Monday (06:04 UTC), and by hand (*Actions → E2E → Run workflow*). It builds the demo image once (Docker layer cache in GitHub Actions) and starts it twice on a PostgreSQL service, each with its own new database (`WAGTAIL_DB_NAME`) and demo accounts made up for the run:
+
+1. **Real API** (repository or organization secret `SUPERTEXT_API_KEY`, set by Remy; without it these steps are skipped with a warning). Version reports are off (`SUPERTEXT_VERSION_REPORTS=0`), so CI runs don't appear in the Commando Center.
+   - `tests/e2e/features.mjs` asks the live `GET features` (cost-free, no plugin or SDK code) whether every pair the demo translates (`en` → `de-CH`, `fr-CH`, `it-CH`) is offered; a missing pair fails the run. Whether the plugin's own language list matches the API is the SDK's job (its own tests).
+   - `tests/e2e/live.mjs` (Playwright, as the `DEMO_EDITOR` account, through Wagtail's admin as in the user guide): *Translate this page* for every English page into all locales, then in each locale's translation editor *Translate with Supertext* and *Publish in …*. Checked: "Successfully translated with Supertext." and no error message; the Supertext step itself publishes nothing (the live revision only changes when the editor publishes); publishing reports no missing translations; in the database every English page has one copy per locale, every field (title, intro, StreamField blocks) is filled and at least 80 % of them changed (a name like "Supertext Wagtail Demo" can stay the same; unchanged fields are printed as `note`), no `data-st-id`/placeholder/`<div>` is left, bold, italics, list items and links (with their `href`) are kept, the article's slug is translated, the text is in the target language (common words of each language counted) and de-CH has no "ß". Translating again must change nothing: wagtail-localize passes only untranslated strings, so the translation editor disables *Translate with Supertext* once every string has a translation (if it is enabled, it is clicked and must show no error); no new pages, published revisions unchanged. Each run translates the demo's two pages into three languages once (around 3,000 characters on the key's account).
+2. **Stand-in API**: the docs screenshots (see *Docs screenshots*), so the images don't change with each machine translation. If `docs/images/` changed, a second job pushes the branch `automation/docs-screenshots` and opens (or updates) the pull request "Docs: regenerate screenshots" (only on `main`). This needs *Settings → Actions → General → Allow GitHub Actions to create and approve pull requests*.
+
+If a run fails, the artifact `e2e-debug` has a screenshot of every translation editor result, the demo logs and the stand-in log. Locally:
+
+```bash
+cd tests/e2e && npm ci && npx playwright install chromium
+# a fresh demo (new database) with a real SUPERTEXT_API_KEY and DEMO_EDITOR_* set, e.g. on port 8081
+SUPERTEXT_API_KEY=… E2E_SOURCE=en E2E_TARGETS=de-CH,fr-CH,it-CH npm run features
+BASE_URL=http://127.0.0.1:8081 DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/wagtail_live \
+  EDITOR_EMAIL=… EDITOR_PASSWORD=… npm run live
+```
+
+`live.mjs` also passes against the stand-in API (it returns real translations for the demo's strings), which is how to try changes to it without a key.
+
 ## Demo (Railway)
 
 The public demo is a container built from `demo/Dockerfile`: Wagtail 8 with wagtail-localize and this package, English plus German, French and Italian (Switzerland), a home page and a sample article. It runs on Railway in the `supertext-cms-demos` project, service `Wagtail`, region EU West (Amsterdam): <https://wagtail-production-b129.up.railway.app/> (admin: `/admin/`). The database is a `wagtail` database on the project's PostgreSQL service.
@@ -206,7 +229,7 @@ docker run --rm -p 8000:8000 \
 The images in `docs/images/` are generated by `tests/docs/screenshots.mjs` (Playwright) from a freshly set-up demo whose translator talks to `tests/docs/stand-in.mjs`. The stand-in returns German, French and Italian for the demo's strings (`samples.json`, real Supertext output). The script also exports the sample article as HTML for French on *Settings → Translation files*, fills in the French from `samples.json` and imports it (`files-export.png`, `files-import.png`). Regenerate them whenever a screen they show changes:
 
 ```bash
-cd tests/docs && npm install && npx playwright install chromium
+cd tests/docs && npm ci && npx playwright install chromium
 npm run stand-in &
 # a fresh demo database (migrate + demo_setup with DEMO_* set), served with
 # SUPERTEXT_API_KEY=anything SUPERTEXT_API_ENDPOINT=http://127.0.0.1:8765/v1/

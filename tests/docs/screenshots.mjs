@@ -13,6 +13,7 @@ import { chromium } from 'playwright'
 const B = process.env.BASE_URL || 'http://127.0.0.1:8093'
 const OUT = new URL('../../docs/images', import.meta.url).pathname
 const LIVE_API = 'https://api.supertext.com/v1/'
+const FIXED_TIME = 'Oct. 13, 2026, 9:41 a.m.' // Django's DATETIME_FORMAT in English
 const pad = (r, p = 8) => ({ x: Math.max(0, r.x - p), y: Math.max(0, r.y - p), width: r.width + 2 * p, height: r.height + 2 * p })
 
 const browser = await chromium.launch()
@@ -31,7 +32,10 @@ function translateHtml(html, lang) {
 }
 
 async function session(email, password) {
-  const page = await (await browser.newContext({ viewport: { width: 1280, height: 860 } })).newPage()
+  const context = await browser.newContext({ viewport: { width: 1280, height: 860 } })
+  // Times shown by the browser (relative dates and the like) don't change between runs.
+  await context.clock.setFixedTime(new Date('2026-10-13T09:41:00+02:00'))
+  const page = await context.newPage()
   await page.goto(`${B}/admin/login/`)
   await page.fill('#id_username', email)
   await page.fill('#id_password', password)
@@ -47,10 +51,37 @@ async function session(email, password) {
   return { page, shot, box, go }
 }
 
+/** The id of a page's translation (the admin explorer API of Wagtail 8.1; earlier versions' pages API). */
+async function translationId(page, sourceId, locale) {
+  return page.evaluate(async ([sourceId, locale]) => {
+    const old = await fetch(`/admin/api/main/pages/?type=home.ArticlePage&locale=${locale}`)
+    if ((old.headers.get('content-type') ?? '').includes('json')) return (await old.json()).items[0]?.id
+    const explorer = async (id) => (await fetch(`/admin/api/explorer/${id}/`)).json()
+    const source = await explorer(sourceId)
+    const parent = await explorer(source.page.meta.parent.id)
+    const home = parent.translations.find((t) => t.locale === locale)
+    if (!home) return undefined
+    const children = await explorer(home.id)
+    return children.children.items.find((p) => p.meta.type === source.page.meta.type)?.id
+  }, [sourceId, locale])
+}
+
 async function pageId(page, title) {
+  // The admin API (Wagtail 8.0 and earlier) or, where it is gone (8.1), the admin's page search.
   return page.evaluate(async (t) => {
     const r = await fetch('/admin/api/main/pages/?search=' + encodeURIComponent(t))
-    return (await r.json()).items.find((p) => p.title === t)?.id
+    if ((r.headers.get('content-type') ?? '').includes('json')) {
+      const id = (await r.json()).items.find((p) => p.title === t)?.id
+      if (id) return id
+    }
+    for (const url of ['/admin/pages/search/results/?q=', '/admin/pages/search/?q=']) {
+      const html = await (await fetch(url + encodeURIComponent(t))).text()
+      const doc = new DOMParser().parseFromString(html, 'text/html')
+      for (const a of doc.querySelectorAll('a[href*="/admin/pages/"][href$="/edit/"]')) {
+        if (a.textContent.replace(/\s+/g, ' ').trim().startsWith(t)) return Number(a.getAttribute('href').match(/\/pages\/(\d+)\/edit\//)[1])
+      }
+    }
+    return undefined
   }, title)
 }
 
@@ -62,6 +93,8 @@ async function pageId(page, title) {
   await page.waitForLoadState('networkidle')
   // The docs run against a local stand-in API; show the endpoint users will see.
   await page.evaluate((live) => document.querySelectorAll('code').forEach((c) => { if (c.textContent.includes('127.0.0.1')) c.textContent = live }), LIVE_API)
+  // The key check's time changes with every run; show a fixed one, so the image only changes with the UI.
+  await page.evaluate((time) => document.querySelectorAll('p.help').forEach((p) => { if (/^\s*Checked on /.test(p.textContent)) p.textContent = `Checked on ${time}` }), FIXED_TIME)
   // The whole page: connection, API key check, version information and the languages table.
   // Wagtail scrolls inside <main>, so make the window as tall as the page instead.
   const height = await page.evaluate(() => {
@@ -99,10 +132,7 @@ async function pageId(page, title) {
   await shot('submitted', { x: 200, y: 0, width: 1080, height: 300 })
 
   // Open the German translation: the translation editor
-  const germanId = await page.evaluate(async () => {
-    const r = await fetch('/admin/api/main/pages/?type=home.ArticlePage&locale=de-ch')
-    return (await r.json()).items[0]?.id
-  })
+  const germanId = await translationId(page, id, 'de-ch')
   await go(`/admin/pages/${germanId}/edit/`)
   await page.waitForTimeout(1500)
   await shot('translation-editor', { x: 200, y: 0, width: 1080, height: 860 })
@@ -118,11 +148,31 @@ async function pageId(page, title) {
   // Publish and show the German page on the site
   await page.getByRole('button', { name: /^Publish in / }).click()
   await page.waitForLoadState('networkidle')
-  const german = await page.evaluate(async () => {
-    const r = await fetch('/admin/api/main/pages/?search=Schweizer')
-    return (await r.json()).items[0]?.meta?.html_url
+  // html_url can be null right after translating: Wagtail caches the site root paths (one hour, per
+  // worker) and the German home page didn't exist when they were cached. The demo's URLs are
+  // /<locale>/<slug>/ (i18n_patterns, the article sits right under the locale's home page).
+  const germanPath = await page.evaluate(async () => {
+    const r = await fetch('/admin/api/main/pages/?type=home.ArticlePage&locale=de-ch')
+    if ((r.headers.get('content-type') ?? '').includes('json')) {
+      const item = (await r.json()).items[0]
+      return item?.meta?.html_url ? new URL(item.meta.html_url).pathname : `/de-ch/${item?.meta?.slug}/`
+    }
+    return undefined
   })
-  await page.goto(B + new URL(german).pathname)
+  // Wagtail 8.1: the page's slug from its edit form (the demo's URLs are /<locale>/<slug>/).
+  const german = germanPath ?? await page.evaluate(async (id) => {
+    const html = await (await fetch(`/admin/pages/${id}/edit/`)).text()
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    // The page form's slug field, or (wagtail-localize's translation editor) its live link or page data.
+    const slug = doc.querySelector('input[name="slug"]')?.value
+    if (slug) return `/de-ch/${slug}/`
+    const live = [...doc.querySelectorAll('a[href*="/de-ch/"]')].map((a) => new URL(a.getAttribute('href'), location.href).pathname).find((p) => !p.startsWith('/admin/'))
+    if (live) return live
+    const data = html.match(/\/de-ch\/[a-z0-9-]+\//)
+    return data ? data[0] : undefined
+  }, germanId)
+  if (!german) throw new Error('No live link of the German page in the editor')
+  await page.goto(B + german)
   await page.waitForLoadState('networkidle')
   await shot('translated-page', { x: 0, y: 0, width: 1280, height: 640 })
 
