@@ -159,23 +159,33 @@ async function pageId(page, title) {
     }
     return undefined
   })
-  // Wagtail 8.1: the page's slug from its edit form (the demo's URLs are /<locale>/<slug>/).
-  const german = germanPath ?? await page.evaluate(async (id) => {
-    const html = await (await fetch(`/admin/pages/${id}/edit/`)).text()
-    const doc = new DOMParser().parseFromString(html, 'text/html')
-    // The page form's slug field, or (wagtail-localize's translation editor) its live link or page data.
-    const slug = doc.querySelector('input[name="slug"]')?.value
-    if (slug) return `/de-ch/${slug}/`
-    const live = [...doc.querySelectorAll('a[href*="/de-ch/"]')].map((a) => new URL(a.getAttribute('href'), location.href).pathname).find((p) => !p.startsWith('/admin/'))
-    if (live) return live
-    const data = html.replace(/\\u002F|\\\//g, '/').match(/\/de-ch\/[a-z0-9-]+\//)
-    if (data) return data[0]
-    // No live link yet (Wagtail's cached site root paths): the slug from the admin explorer API.
+  // Wagtail 8.1: no pages API, and the German page often has no live link yet (Wagtail caches the
+  // site root paths). Collect candidate paths (/<locale>/<slug>/) and take the first the site serves.
+  const found = germanPath ? { path: germanPath } : await page.evaluate(async ([id, sourceId]) => {
+    const tried = []
+    const add = (p) => { if (p && /^\/de-ch\/[^/]+\/$/.test(p) && !tried.includes(p)) tried.push(p) }
+    const fromSlug = (slug) => slug ? `/de-ch/${slug}/` : undefined
+    const editForm = async (pid) => {
+      const html = await (await fetch(`/admin/pages/${pid}/edit/`)).text()
+      return { html, doc: new DOMParser().parseFromString(html, 'text/html') }
+    }
+    const german = await editForm(id)
+    add(fromSlug(german.doc.querySelector('input[name="slug"]')?.value))
+    for (const a of german.doc.querySelectorAll('a[href*="/de-ch/"]')) add(new URL(a.getAttribute('href'), location.href).pathname)
+    for (const m of german.html.replace(/\\u002F|\\\//g, '/').matchAll(/\/de-ch\/[a-z0-9-]+\//g)) add(m[0])
     const r = await fetch(`/admin/api/explorer/${id}/`)
-    if (!(r.headers.get('content-type') ?? '').includes('json')) return undefined
-    const meta = (await r.json()).page?.meta ?? {}
-    return meta.html_url ? new URL(meta.html_url).pathname : meta.slug ? `/de-ch/${meta.slug}/` : undefined
-  }, germanId)
+    if ((r.headers.get('content-type') ?? '').includes('json')) {
+      const meta = (await r.json()).page?.meta ?? {}
+      if (meta.html_url) add(new URL(meta.html_url).pathname)
+      add(fromSlug(meta.slug))
+    }
+    // wagtail-localize keeps the source slug unless it is translated.
+    add(fromSlug((await editForm(sourceId)).doc.querySelector('input[name="slug"]')?.value))
+    for (const p of tried) if ((await fetch(p)).ok) return { path: p, tried }
+    return { tried }
+  }, [germanId, id])
+  const german = found.path
+  if (!german) console.error('Tried for the German page:', found.tried)
   if (!german) throw new Error('No live link of the German page in the editor')
   await page.goto(B + german)
   await page.waitForLoadState('networkidle')
