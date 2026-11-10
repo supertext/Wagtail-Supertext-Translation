@@ -168,8 +168,13 @@ async function pageId(page, title) {
     if (slug) return `/de-ch/${slug}/`
     const live = [...doc.querySelectorAll('a[href*="/de-ch/"]')].map((a) => new URL(a.getAttribute('href'), location.href).pathname).find((p) => !p.startsWith('/admin/'))
     if (live) return live
-    const data = html.match(/\/de-ch\/[a-z0-9-]+\//)
-    return data ? data[0] : undefined
+    const data = html.replace(/\\u002F|\\\//g, '/').match(/\/de-ch\/[a-z0-9-]+\//)
+    if (data) return data[0]
+    // No live link yet (Wagtail's cached site root paths): the slug from the admin explorer API.
+    const r = await fetch(`/admin/api/explorer/${id}/`)
+    if (!(r.headers.get('content-type') ?? '').includes('json')) return undefined
+    const meta = (await r.json()).page?.meta ?? {}
+    return meta.html_url ? new URL(meta.html_url).pathname : meta.slug ? `/de-ch/${meta.slug}/` : undefined
   }, germanId)
   if (!german) throw new Error('No live link of the German page in the editor')
   await page.goto(B + german)
