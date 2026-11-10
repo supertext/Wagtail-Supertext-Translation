@@ -148,6 +148,7 @@ async function pageId(page, title) {
   // Publish and show the German page on the site
   await page.getByRole('button', { name: /^Publish in / }).click()
   await page.waitForLoadState('networkidle')
+  await page.getByText(/published/i).first().waitFor({ timeout: 30000 }).catch(() => console.error('No "published" message after Publish'))
   // html_url can be null right after translating: Wagtail caches the site root paths (one hour, per
   // worker) and the German home page didn't exist when they were cached. The demo's URLs are
   // /<locale>/<slug>/ (i18n_patterns, the article sits right under the locale's home page).
@@ -181,12 +182,16 @@ async function pageId(page, title) {
     }
     // wagtail-localize keeps the source slug unless it is translated.
     add(fromSlug((await editForm(sourceId)).doc.querySelector('input[name="slug"]')?.value))
-    for (const p of tried) if ((await fetch(p)).ok) return { path: p, tried }
+    // Publishing may still be finishing: give the site up to 30 seconds.
+    for (let i = 0; i < 15; i++) {
+      for (const p of tried) if ((await fetch(p, { cache: 'no-store' })).ok) return { path: p, tried }
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+    }
     return { tried }
   }, [germanId, id])
   const german = found.path
   if (!german) console.error('Tried for the German page:', found.tried)
-  if (!german) throw new Error('No live link of the German page in the editor')
+  if (!german) throw new Error('The German page is not served at any of the paths tried')
   await page.goto(B + german)
   await page.waitForLoadState('networkidle')
   await shot('translated-page', { x: 0, y: 0, width: 1280, height: 640 })
