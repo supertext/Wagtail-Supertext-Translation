@@ -151,7 +151,7 @@ pytest
 
 CI (`.github/workflows/ci.yml`) on every push and pull request:
 
-- **test**: the suite on Python 3.11 with Wagtail 7.4 and Django 5.2, 3.12 with Wagtail 7.4 and Django 6.0, 3.13 and 3.14 with Wagtail 8.0 and Django 6.1, and 3.14 with Wagtail 8.1 and Django 6.1.
+- **test**: the suite on Python 3.11 with Wagtail 7.4 and Django 5.2, 3.12 with Wagtail 7.4 and Django 6.0, 3.13 and 3.14 with Wagtail 8.0 and Django 6.1, and 3.14 and 3.15 with Wagtail 8.1 and Django 6.1.
 - **demo**: installs the demo, runs migrations and `demo_setup` twice against PostgreSQL, `supertext_check`, checks the `installed` and `check` reports the stand-in center received (plugin name, ping URL, no key) and the ping endpoint, then translates the home page and the sample article into German through the stand-in API and checks the title, slug and markup.
 
 `.github/workflows/checks.yml` and `links.yml` lint the workflows and check the links. `.github/workflows/e2e.yml` runs the end-to-end test against the real Supertext API and regenerates the docs screenshots (see *End-to-end tests*).
@@ -187,7 +187,7 @@ The public demo is a container built from `demo/Dockerfile`: Wagtail 8 with wagt
 
 | File | Purpose |
 | --- | --- |
-| `Dockerfile` | `python:3.14-slim`, the demo's requirements and this package (installed from the repository), `collectstatic` |
+| `Dockerfile` | `python:3.15-slim`, the demo's requirements and this package (installed from the repository), `collectstatic` |
 | `entrypoint.sh` | Every start: creates the database if missing, `migrate`, `demo_setup`, then gunicorn on `$PORT` |
 | `demo/settings.py` | Settings from environment variables; PostgreSQL via `DATABASE_URL` (database name `WAGTAIL_DB_NAME`); WhiteNoise for static files; Supertext as machine translator; `demo_setup` gives the three target locales the formal tone on *Settings → Supertext* once (only if they have no row yet) |
 | `home/` | `HomePage` and `ArticlePage` (title, rich-text intro, StreamField with headings, paragraphs, quotes), templates with a language switcher, migrations, and the `demo_setup` command |

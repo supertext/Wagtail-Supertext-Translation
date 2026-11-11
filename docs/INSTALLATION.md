@@ -12,7 +12,7 @@ For administrators and developers adding Supertext to a Wagtail site.
 | --- | --- |
 | Wagtail | 8.1 (tested), 7.4 LTS and 8.0 (tested in CI) |
 | wagtail-localize | 1.12 or newer |
-| Python | 3.11 or newer (whatever your Wagtail needs; tested up to 3.14) |
+| Python | 3.11 or newer (whatever your Wagtail needs; tested up to 3.15) |
 | Supertext | An account ([create one or log in](https://www.supertext.com/person/en/account/signin)) and an API key ([supertext.com → Integrations → API](https://www.supertext.com/en/integrations/api), needs the Admin role). See [Getting a Supertext account and API key](#getting-a-supertext-account-and-api-key). |
 | Network | The server must reach `https://api.supertext.com` over HTTPS (and, for [Translation review](#translation-review), Supertext's review service) |
 
