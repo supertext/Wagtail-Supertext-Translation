@@ -51,6 +51,12 @@
     {% if reports_enabled %}
       <p class="help">{% if ping_url %}{% trans "Ping endpoint:" %} <code>{{ ping_url }}</code>{% else %}{% blocktrans trimmed %}The ping endpoint isn't installed: add <code>path("supertext/", include("wagtail_supertext.urls"))</code> to your <code>urls.py</code> (see the installation guide).{% endblocktrans %}{% endif %}</p>
     {% endif %}
+    <form method="post" data-supertext-send-configuration>
+      {% csrf_token %}
+      <input type="hidden" name="action" value="configuration">
+      <button type="submit" class="button button-secondary">{% trans "Send configuration to Supertext" %}</button>
+    </form>
+    <p class="help">{% trans "Sends Supertext the Django apps installed here (name, version; Django's and Wagtail's own are left out) and the Supertext language of each locale, so Supertext support can help better. Nothing else is sent." %}</p>
   </section>
 
   <section>

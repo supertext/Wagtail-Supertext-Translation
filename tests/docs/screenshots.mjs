@@ -33,6 +33,9 @@ function translateHtml(html, lang) {
 
 async function session(email, password) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 860 } })
+  // Real Supertext translations (CI) can take minutes: the form posts wait that long.
+  context.setDefaultTimeout(300_000)
+  context.setDefaultNavigationTimeout(300_000)
   // Times shown by the browser (relative dates and the like) don't change between runs.
   await context.clock.setFixedTime(new Date('2026-10-13T09:41:00+02:00'))
   const page = await context.newPage()
@@ -148,7 +151,7 @@ async function pageId(page, title) {
   // Publish and show the German page on the site
   await page.getByRole('button', { name: /^Publish in / }).click()
   await page.waitForLoadState('networkidle')
-  await page.getByText(/published/i).first().waitFor({ timeout: 30000 }).catch(() => console.error('No "published" message after Publish'))
+  await page.getByText(/published/i).first().waitFor({ timeout: 300_000 }).catch(() => console.error('No "published" message after Publish'))
   // html_url can be null right after translating: Wagtail caches the site root paths (one hour, per
   // worker) and the German home page didn't exist when they were cached. The demo's URLs are
   // /<locale>/<slug>/ (i18n_patterns, the article sits right under the locale's home page).

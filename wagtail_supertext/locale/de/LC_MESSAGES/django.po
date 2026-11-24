@@ -430,3 +430,32 @@ msgstr ""
 "<code>politeness</code> und <code>review</code> in der Option "
 "<code>LANGUAGES</code> Vorrang vor der Wahl hier (siehe "
 "Installationsanleitung)."
+
+msgid "Send configuration to Supertext"
+msgstr "Konfiguration an Supertext senden"
+
+msgid ""
+"Sends Supertext the Django apps installed here (name, version; Django's and "
+"Wagtail's own are left out) and the Supertext language of each locale, so "
+"Supertext support can help better. Nothing else is sent."
+msgstr ""
+"Sendet Supertext die hier installierten Django-Apps (Name, Version; die von "
+"Django und Wagtail selbst nicht) und die Supertext-Sprache jeder Wagtail-"
+"Sprache, damit der Supertext-Support besser helfen kann. Sonst wird nichts "
+"gesendet."
+
+msgid ""
+"Version information is off (VERSION_REPORTS or SUPERTEXT_VERSION_REPORTS): "
+"nothing was sent."
+msgstr ""
+"Die Versionsinformationen sind ausgeschaltet (VERSION_REPORTS oder "
+"SUPERTEXT_VERSION_REPORTS): Es wurde nichts gesendet."
+
+#, python-format
+msgid "Sent: %(extensions)s apps, %(languages)s languages."
+msgstr "Gesendet: %(extensions)s Apps, %(languages)s Sprachen."
+
+msgid "The configuration couldn't be sent. Try again later."
+msgstr ""
+"Die Konfiguration konnte nicht gesendet werden. Versuchen Sie es später noch"
+" einmal."

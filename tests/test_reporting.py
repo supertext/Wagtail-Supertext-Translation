@@ -63,7 +63,7 @@ def test_state_stored_by_the_sdk_reporter_is_kept(admin, center):
     }
     SupertextState.objects.create(key="reporter", value=json.dumps(old, separators=(",", ":")))
     admin.get("/admin/supertext/")
-    assert center.requests == [] and stored() == old
+    assert center.requests == [] and stored() == {**old, "keyChecks": None, "reportedKeyStatuses": None}
 
 
 def test_bundled_plugin_health():
@@ -72,7 +72,7 @@ def test_bundled_plugin_health():
     from wagtail_supertext._vendor import plugin_health, supertext
 
     vendor = Path(reporting.__file__).parent / "_vendor"
-    assert (vendor / "plugin_health" / "VERSION").read_text().strip() == plugin_health.PLUGIN_HEALTH_VERSION == "0.1.0"
+    assert (vendor / "plugin_health" / "VERSION").read_text().strip() == plugin_health.PLUGIN_HEALTH_VERSION == "0.4.0"
     assert not hasattr(supertext.v1, "InstallationReporter")
 
 
@@ -224,3 +224,20 @@ def test_status_page_saves_languages(admin):
     # A code that isn't in Supertext's list is refused.
     admin.post("/admin/supertext/", {"action": "languages", f"code-{li.pk}": "xx-YY"})
     assert SupertextLanguage.objects.get(locale=li).code == ""
+
+
+def test_send_configuration_sends_apps_and_languages(admin, center):
+    response = admin.post("/admin/supertext/", {"action": "configuration"}, follow=True)
+    assert "Sent:" in response.content.decode()
+    (report,) = [r for r in center.reports if r["event"] == "extensions"]
+    names = [e["name"].lower() for e in report["extensions"]]
+    assert "wagtail" not in names and "django" not in names and "wagtail-supertext-translation" not in names
+    assert report["languages"] and all(set(lang) == {"code", "supertext"} for lang in report["languages"])
+    assert "test-key" not in json.dumps(report)
+
+
+def test_send_configuration_sends_nothing_with_reports_off(admin, center, monkeypatch):
+    monkeypatch.setenv("SUPERTEXT_VERSION_REPORTS", "0")
+    response = admin.post("/admin/supertext/", {"action": "configuration"}, follow=True)
+    assert "nothing was sent" in response.content.decode()
+    assert center.reports == []

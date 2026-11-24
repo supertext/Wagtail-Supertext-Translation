@@ -127,7 +127,7 @@ def key_client(options, api_key: str, http) -> sdk.SupertextClient:
     )
 
 
-def reporter(options, request=None) -> InstallationReporter | None:
+def reporter(options, request=None, languages: list[dict] | None = None) -> InstallationReporter | None:
     url = site_url(request)
     if not url:
         return None
@@ -137,7 +137,9 @@ def reporter(options, request=None) -> InstallationReporter | None:
         answer = http(sdk.HttpRequest(report.method, report.url, dict(report.headers), report.body, report.timeout))
         return HttpResponse(answer.status, answer.body)
 
+    extra = {"languages": (lambda: languages)} if languages is not None else {}
     return InstallationReporter(
+        **extra,
         enabled=options.reports_enabled,
         site_url=url,
         plugin=NameVersion(PLUGIN_NAME, __version__),
@@ -187,6 +189,56 @@ def run(action: str, options, request=None, http_status: int = 401) -> ReporterR
         except Exception as error:  # reporting is optional: never break the caller
             logger.debug("Supertext: version report skipped: %s", error)
             return None
+
+
+# Django, Wagtail and wagtail-localize themselves (and what they need): not sent by send_configuration().
+CORE_APPS = ("django", "wagtail", "wagtail_localize", "modelcluster", "taggit", "treebeard", "wagtail_supertext")
+
+
+def installed_apps() -> list[dict]:
+    """The installed Django apps that aren't Django's or Wagtail's own, as the Python distributions
+    that ship them (name and version), once each."""
+    from importlib import metadata
+
+    from django.apps import apps
+
+    try:
+        distributions = metadata.packages_distributions()
+    except Exception:  # noqa: BLE001
+        distributions = {}
+    seen: dict[str, dict] = {}
+    for app in apps.get_app_configs():
+        top = app.name.split(".")[0]
+        if top in CORE_APPS:
+            continue
+        name = (distributions.get(top) or [top])[0]
+        try:
+            version = metadata.version(name)
+        except Exception:  # noqa: BLE001 - an app from the project itself
+            version = None
+        seen.setdefault(name.lower(), {"name": name, "version": version, "active": True, "type": "app"})
+    return sorted(seen.values(), key=lambda e: e["name"].lower())
+
+
+def send_configuration(options, languages: list[str], request=None) -> dict | None:
+    """"Send configuration to Supertext" (Supertext page): the installed apps and every Wagtail locale
+    with its Supertext code in one ``extensions`` report, sent now (also within the hour after a failed
+    report). None with version reports off. Never raises."""
+    if not options.reports_enabled:
+        return None
+    with _lock:
+        try:
+            mapping = [{"code": code, "supertext": options.target_code_or_none(code)} for code in languages]
+            current = reporter(options, request, mapping)
+            if current is None:
+                return {"sent": False, "extensions": 0, "languages": 0}
+            extensions = installed_apps()
+            result = current.send_extensions(load_state(), extensions)
+            save_state(result.state)
+            return {"sent": result.sent, "extensions": len(extensions), "languages": len(mapping)}
+        except Exception as error:  # noqa: BLE001 - reporting never breaks the admin
+            logger.debug("Supertext: configuration not sent: %s", error)
+            return {"sent": False, "extensions": 0, "languages": 0}
 
 
 def in_background(action: str, options, request=None, http_status: int = 401) -> None:

@@ -39,6 +39,16 @@ def status(request):
         messages.success(request, _("The languages are saved."))
         reporting.in_background("settings_saved", conf.load(), request)
         return redirect("wagtail_supertext_status")
+    if request.method == "POST" and request.POST.get("action") == "configuration":
+        codes = list(Locale.objects.order_by("language_code").values_list("language_code", flat=True))
+        sent = reporting.send_configuration(options, codes, request)
+        if sent is None:
+            messages.warning(request, _("Version information is off (VERSION_REPORTS or SUPERTEXT_VERSION_REPORTS): nothing was sent."))
+        elif sent["sent"]:
+            messages.success(request, _("Sent: %(extensions)s apps, %(languages)s languages.") % {"extensions": sent["extensions"], "languages": sent["languages"]})
+        else:
+            messages.error(request, _("The configuration couldn't be sent. Try again later."))
+        return redirect("wagtail_supertext_status")
     if request.method == "POST":
         # Test connection: the SDK's key check (cost-free GET features), stored and reported if it changed.
         result = reporting.run("test_connection", options, request)
