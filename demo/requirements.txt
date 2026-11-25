@@ -1,5 +1,5 @@
 wagtail==8.1
-wagtail-localize==1.14.5
+wagtail-localize==1.15
 gunicorn==27.0.1
 whitenoise==6.12.0
 dj-database-url==3.1.2
