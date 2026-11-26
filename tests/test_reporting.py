@@ -33,7 +33,7 @@ def test_first_admin_request_reports_installed(admin, center):
     assert report["site_url"] == "http://testserver"
     assert report["plugin"] == {"name": "Wagtail-Supertext-Translation", "version": __version__}
     assert report["system"]["name"] == "Wagtail" and report["runtime"]["name"] == "Python"
-    assert report["sdk_version"] == "0.5.0"
+    assert report["sdk_version"] == "0.7.0"
     assert report["api_key_configured"] is True and report["api_key_check"]["status"] == "ok"
     assert report["callback"] == {"url": "http://testserver/supertext/ping"}
     assert "test-key" not in json.dumps(report)
