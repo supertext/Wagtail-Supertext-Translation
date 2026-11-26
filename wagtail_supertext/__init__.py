@@ -1,6 +1,6 @@
 """Supertext AI translation for Wagtail, as a wagtail-localize machine translator."""
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 
 def __getattr__(name):
