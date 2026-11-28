@@ -2,6 +2,9 @@ version: 2
 updates:
   - package-ecosystem: "pip"
     directory: "/"
+    # New versions wait a week before Dependabot proposes them (time for a bad release to be pulled).
+    cooldown:
+      default-days: 7
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
@@ -10,6 +13,9 @@ updates:
         update-types: ["minor", "patch"]
   - package-ecosystem: "npm"
     directories: ["/tests/docs", "/tests/e2e"]
+    # New versions wait a week before Dependabot proposes them (time for a bad release to be pulled).
+    cooldown:
+      default-days: 7
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
@@ -18,9 +24,28 @@ updates:
         update-types: ["minor", "patch"]
   - package-ecosystem: "github-actions"
     directory: "/"
+    # New versions wait a week before Dependabot proposes them (time for a bad release to be pulled).
+    cooldown:
+      default-days: 7
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
     groups:
       actions:
+        patterns: ["*"]
+  # Base images are pinned by digest (OpenSSF Scorecard: Pinned-Dependencies); this keeps the
+  # digests and patch/minor tags current. Majors (a new Node, PHP, … line) are a decision, not an update.
+  - package-ecosystem: "docker"
+    directories:
+      - "/demo"
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      docker:
         patterns: ["*"]
